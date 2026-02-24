@@ -72,8 +72,12 @@ async function startServer() {
       .single();
 
     if (error) {
+      // PGRST116 is the code for "no rows returned"
+      if (error.code === 'PGRST116') {
+        return res.status(401).json({ error: "Invalid username or password" });
+      }
       console.error('Supabase Login Error:', error);
-      return res.status(401).json({ error: error.message || "Invalid username or password" });
+      return res.status(401).json({ error: error.message });
     }
 
     if (data) {
