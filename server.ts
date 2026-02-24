@@ -14,6 +14,7 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 /**
  * Supabase SQL Schema for this app:
  * 
+ * -- 1. Create tables
  * CREATE TABLE users (
  *   username TEXT PRIMARY KEY,
  *   password TEXT NOT NULL,
@@ -26,6 +27,13 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
  *   content TEXT NOT NULL,
  *   created_at TIMESTAMPTZ DEFAULT NOW()
  * );
+ * 
+ * -- 2. Disable RLS for simplicity
+ * ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+ * ALTER TABLE posts DISABLE ROW LEVEL SECURITY;
+ * 
+ * -- 3. Insert admin
+ * INSERT INTO users (username, password) VALUES ('Ashur@admin.com', '12345678');
  */
 
 async function startServer() {
@@ -62,6 +70,11 @@ async function startServer() {
       .eq('username', username)
       .eq('password', password)
       .single();
+
+    if (error) {
+      console.error('Supabase Login Error:', error);
+      return res.status(401).json({ error: error.message || "Invalid username or password" });
+    }
 
     if (data) {
       res.json({ success: true, username: data.username });
