@@ -1,0 +1,5 @@
+{
+  "name": "TextPost",
+  "description": "A minimalist text-only posting application where users log in with a username.",
+  "requestFramePermissions": []
+}
