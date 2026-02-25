@@ -25,8 +25,13 @@ export default function App() {
   const [editingPostId, setEditingPostId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [dbStatus, setDbStatus] = useState<'checking' | 'connected' | 'error'>('checking');
 
   useEffect(() => {
+    // Check connection to backend
+    fetch('/backend/health')
+      .then(res => res.ok ? setDbStatus('connected') : setDbStatus('error'))
+      .catch(() => setDbStatus('error'));
     // Check for existing Supabase session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
@@ -147,16 +152,17 @@ export default function App() {
           setNewPostContent('');
           fetchPosts();
         } else {
-          setError(data.error || `Error ${response.status}: Failed to post`);
+          console.error('Post failed:', data);
+          setError(data.error || `Error ${response.status}: Failed to post. Check if your Supabase keys are correct.`);
         }
       } else {
         const text = await response.text();
         console.error('Non-JSON response:', text);
-        setError(`Server Error ${response.status}. Please check logs.`);
+        setError(`Server Error ${response.status}: ${text.substring(0, 100)}...`);
       }
     } catch (error: any) {
       console.error('Failed to post:', error);
-      setError(`Connection error: ${error.message || 'Unknown error'}`);
+      setError(`Connection error: ${error.message || 'Unknown error'}. Is the server running?`);
     } finally {
       setIsLoading(false);
     }
@@ -318,12 +324,13 @@ export default function App() {
       {/* Header */}
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-black/5">
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
-              <MessageSquare className="text-white w-4 h-4" />
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
+                <MessageSquare className="text-white w-4 h-4" />
+              </div>
+              <span className="font-semibold text-zinc-900">TextPost</span>
+              <div className={`ml-2 w-2 h-2 rounded-full ${dbStatus === 'connected' ? 'bg-emerald-500' : dbStatus === 'error' ? 'bg-red-500' : 'bg-amber-500 animate-pulse'}`} title={dbStatus === 'connected' ? 'Server Connected' : 'Server Connection Error'} />
             </div>
-            <span className="font-semibold text-zinc-900">TextPost</span>
-          </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-100 rounded-full">
               <User className="w-4 h-4 text-zinc-500" />

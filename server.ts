@@ -180,7 +180,12 @@ async function startServer() {
 
       if (error) {
         console.error('Supabase Post Error:', error);
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ 
+          error: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
       }
       
       res.json(data);
