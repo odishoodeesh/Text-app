@@ -12,7 +12,7 @@ const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 /**
- * Supabase SQL Schema for this app:
+ * Supabase SQL Schema for Production:
  * 
  * -- 1. Create the users table
  * CREATE TABLE IF NOT EXISTS public.users (
@@ -30,18 +30,11 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
  * );
  * 
  * -- 3. Disable Row Level Security (RLS) for simplicity
+ * -- (Alternatively, configure proper RLS policies for production)
  * ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
  * ALTER TABLE public.posts DISABLE ROW LEVEL SECURITY;
  * 
- * -- 4. Insert the admin user
- * INSERT INTO public.users (username, password) 
- * VALUES ('Ashur@admin.com', '12345678')
- * ON CONFLICT (username) DO NOTHING;
- * 
- * -- 5. [ADVANCED] Auto-Sync Google Auth users to public.users table
- * -- This ensures that when someone logs in via Google, they are automatically 
- * -- added to your 'users' table so they can post.
- * 
+ * -- 4. Auto-Sync Google Auth users to public.users table
  * CREATE OR REPLACE FUNCTION public.handle_new_user() 
  * RETURNS trigger AS $$
  * BEGIN
