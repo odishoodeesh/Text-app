@@ -33,26 +33,35 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
  *   created_at TIMESTAMPTZ DEFAULT NOW()
  * );
  * 
- * -- 3. Disable Row Level Security (RLS) for simplicity
- * -- (Alternatively, configure proper RLS policies for production)
+ * -- 3. Disable Row Level Security (RLS)
  * ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
  * ALTER TABLE public.posts DISABLE ROW LEVEL SECURITY;
  * 
- * -- 4. Auto-Sync Google Auth users to public.users table
+ * -- 4. Create the Sync Function
  * CREATE OR REPLACE FUNCTION public.handle_new_user() 
- * RETURNS trigger AS $$
+ * RETURNS trigger 
+ * LANGUAGE plpgsql 
+ * SECURITY DEFINER SET search_path = public
+ * AS $$
  * BEGIN
  *   INSERT INTO public.users (username, password)
  *   VALUES (new.email, 'google_authenticated_user')
  *   ON CONFLICT (username) DO NOTHING;
  *   RETURN new;
  * END;
- * $$ LANGUAGE plpgsql SECURITY DEFINER;
+ * $$;
  * 
+ * -- 5. Create the Trigger
  * DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
  * CREATE TRIGGER on_auth_user_created
  *   AFTER INSERT ON auth.users
  *   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+ * 
+ * -- 6. Backfill existing users
+ * INSERT INTO public.users (username, password)
+ * SELECT email, 'google_authenticated_user'
+ * FROM auth.users
+ * ON CONFLICT (username) DO NOTHING;
  */
 
 async function startServer() {
