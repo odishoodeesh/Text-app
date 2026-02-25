@@ -29,7 +29,9 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
  *   created_at TIMESTAMPTZ DEFAULT NOW()
  * );
  * 
- * -- 3. Disable Row Level Security (RLS) for simplicity
+ * -- 3. IMPORTANT: Disable Row Level Security (RLS) 
+ * -- This allows the app to read/write using the Anon key without complex policies.
+ * -- This is the most common reason for "not posting" or "login failed" errors.
  * ALTER TABLE users DISABLE ROW LEVEL SECURITY;
  * ALTER TABLE posts DISABLE ROW LEVEL SECURITY;
  * 
@@ -37,9 +39,6 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
  * INSERT INTO users (username, password) 
  * VALUES ('Ashur@admin.com', '12345678')
  * ON CONFLICT (username) DO NOTHING;
- * 
- * -- Note: For Google Auth, ensure you have configured the Google Provider 
- * -- in the Supabase Auth dashboard and added the correct redirect URLs.
  */
 
 async function startServer() {
@@ -110,25 +109,33 @@ async function startServer() {
       return res.status(400).json({ error: "Username and content are required" });
     }
     
-    // Ensure user exists in our 'users' table (especially for Google Auth users)
-    // We use a dummy password for Google users since they don't use it.
-    const { error: userError } = await supabase
-      .from('users')
-      .upsert([{ username, password: 'google_authenticated_user' }], { onConflict: 'username' });
+    try {
+      // Ensure user exists in our 'users' table (especially for Google Auth users)
+      const { error: userError } = await supabase
+        .from('users')
+        .upsert([{ username, password: 'google_authenticated_user' }], { onConflict: 'username' });
 
-    if (userError) {
-      console.error('Error ensuring user exists:', userError);
-      // We continue anyway, maybe the user already exists or RLS is disabled
+      if (userError) {
+        console.error('Error ensuring user exists:', userError);
+        // We continue, but this might cause the post insert to fail if FK is active
+      }
+
+      const { data, error } = await supabase
+        .from('posts')
+        .insert([{ username, content }])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Supabase Post Error:', error);
+        return res.status(500).json({ error: error.message });
+      }
+      
+      res.json(data);
+    } catch (err: any) {
+      console.error('Server Post Error:', err);
+      res.status(500).json({ error: err.message || "Internal server error" });
     }
-
-    const { data, error } = await supabase
-      .from('posts')
-      .insert([{ username, content }])
-      .select()
-      .single();
-
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data);
   });
 
   // Vite middleware for development

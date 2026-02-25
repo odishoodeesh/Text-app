@@ -119,18 +119,25 @@ export default function App() {
     if (!newPostContent.trim() || !username) return;
 
     setIsLoading(true);
+    setError(null);
     try {
       const response = await fetch('/api/posts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, content: newPostContent.trim() }),
       });
+      
+      const data = await response.json();
+      
       if (response.ok) {
         setNewPostContent('');
         fetchPosts();
+      } else {
+        setError(data.error || 'Failed to post');
       }
     } catch (error) {
       console.error('Failed to post:', error);
+      setError('Connection error. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -274,6 +281,21 @@ export default function App() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-8">
+        {/* Error Display */}
+        <AnimatePresence>
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-4 p-4 bg-red-50 text-red-600 rounded-2xl text-sm border border-red-100 flex items-center justify-between"
+            >
+              <span>{error}</span>
+              <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600">✕</button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Post Form */}
         <div className="bg-white rounded-3xl shadow-sm p-6 border border-black/5 mb-8">
           <form onSubmit={handlePost}>
