@@ -3,8 +3,8 @@ import { Send, User, LogOut, MessageSquare, Lock, UserPlus, LogIn, Edit2, Trash2
 import { motion, AnimatePresence } from 'motion/react';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.SUPABASE_URL || "";
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
+const supabaseUrl = process.env.SUPABASE_URL || "https://zkblysthqcmspaxiodur.supabase.co";
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprYmx5c3RocWNtc3BheGlvZHVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NDY2NjEsImV4cCI6MjA4NzUyMjY2MX0.i3Cl5vM4pBUQxL_sZIOwuWDzD8IDVONRZ477-ZszQxU";
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface Post {
