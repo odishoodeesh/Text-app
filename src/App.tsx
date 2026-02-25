@@ -29,7 +29,7 @@ export default function App() {
 
   useEffect(() => {
     // Check connection to backend
-    fetch('/backend/health')
+    fetch('/api/health')
       .then(res => res.ok ? setDbStatus('connected') : setDbStatus('error'))
       .catch(() => setDbStatus('error'));
     // Check for existing Supabase session
@@ -64,7 +64,7 @@ export default function App() {
 
   const fetchPosts = async () => {
     try {
-      const url = '/backend/posts';
+      const url = '/api/posts';
       console.log(`Fetching posts from: ${url}`);
       const response = await fetch(url);
       
@@ -84,7 +84,7 @@ export default function App() {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const endpoint = isRegistering ? '/backend/register' : '/backend/login';
+    const endpoint = isRegistering ? '/api/register' : '/api/login';
     
     try {
       const response = await fetch(endpoint, {
@@ -137,7 +137,7 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     try {
-      const url = '/backend/posts';
+      const url = '/api/posts';
       console.log(`Posting to: ${url}`);
       const response = await fetch(url, {
         method: 'POST',
@@ -172,7 +172,7 @@ export default function App() {
     if (!editContent.trim() || !username) return;
     setIsLoading(true);
     try {
-      const response = await fetch(`/backend/posts/${postId}`, {
+      const response = await fetch(`/api/posts/${postId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, content: editContent.trim() }),
@@ -195,7 +195,7 @@ export default function App() {
     if (!username || !window.confirm('Are you sure you want to delete this post?')) return;
     setIsLoading(true);
     try {
-      const response = await fetch(`/backend/posts/${postId}`, {
+      const response = await fetch(`/api/posts/${postId}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username }),

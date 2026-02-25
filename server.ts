@@ -7,6 +7,8 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+console.log(`[SERVER START] NODE_ENV: ${process.env.NODE_ENV}`);
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -76,10 +78,8 @@ async function startServer() {
     next();
   });
 
-  const apiRouter = express.Router();
-
   // Health check
-  apiRouter.get("/health", (req, res) => {
+  app.get("/api/health", (req, res) => {
     console.log("Health check requested");
     res.json({ 
       status: "ok", 
@@ -89,9 +89,8 @@ async function startServer() {
   });
 
   // Auth Routes
-  apiRouter.post("/register", async (req, res) => {
+  app.post("/api/register", async (req, res) => {
     const { username, password } = req.body;
-    // ... rest of register logic
     if (!username || !password) {
       return res.status(400).json({ error: "Username and password are required" });
     }
@@ -115,7 +114,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  apiRouter.post("/login", async (req, res) => {
+  app.post("/api/login", async (req, res) => {
     const { username, password } = req.body;
     const { data, error } = await supabase
       .from('users')
@@ -125,7 +124,6 @@ async function startServer() {
       .single();
 
     if (error) {
-      // PGRST116 is the code for "no rows returned"
       if (error.code === 'PGRST116') {
         return res.status(401).json({ error: "Invalid username or password" });
       }
@@ -141,7 +139,7 @@ async function startServer() {
   });
 
   // API Routes
-  apiRouter.get("/posts", async (req, res) => {
+  app.get("/api/posts", async (req, res) => {
     const { data, error } = await supabase
       .from('posts')
       .select('*')
@@ -151,26 +149,18 @@ async function startServer() {
     res.json(data || []);
   });
 
-  apiRouter.post("/posts", async (req, res) => {
+  app.post("/api/posts", async (req, res) => {
     const { username, content } = req.body;
     if (!username || !content) {
       return res.status(400).json({ error: "Username and content are required" });
     }
     
-    if (!supabaseUrl || !supabaseAnonKey) {
-      console.error('Supabase configuration missing');
-      return res.status(500).json({ error: "Server configuration error: Supabase key missing" });
-    }
-
     try {
-      // Ensure user exists in our 'users' table (especially for Google Auth users)
       const { error: userError } = await supabase
         .from('users')
         .upsert([{ username, password: 'google_authenticated_user' }], { onConflict: 'username' });
 
-      if (userError) {
-        console.error('Error ensuring user exists:', userError);
-      }
+      if (userError) console.error('Error ensuring user exists:', userError);
 
       const { data, error } = await supabase
         .from('posts')
@@ -195,7 +185,7 @@ async function startServer() {
     }
   });
 
-  apiRouter.put("/posts/:id", async (req, res) => {
+  app.put("/api/posts/:id", async (req, res) => {
     const { id } = req.params;
     const { username, content } = req.body;
 
@@ -207,7 +197,7 @@ async function startServer() {
       .from('posts')
       .update({ content })
       .eq('id', id)
-      .eq('username', username) // Security: only owner can edit
+      .eq('username', username)
       .select()
       .single();
 
@@ -219,9 +209,9 @@ async function startServer() {
     res.json(data);
   });
 
-  apiRouter.delete("/posts/:id", async (req, res) => {
+  app.delete("/api/posts/:id", async (req, res) => {
     const { id } = req.params;
-    const { username } = req.body; // In a real app, this would come from a session/JWT
+    const { username } = req.body;
 
     if (!username) {
       return res.status(400).json({ error: "Username is required" });
@@ -231,7 +221,7 @@ async function startServer() {
       .from('posts')
       .delete()
       .eq('id', id)
-      .eq('username', username); // Security: only owner can delete
+      .eq('username', username);
 
     if (error) {
       console.error('Supabase Delete Error:', error);
@@ -240,14 +230,6 @@ async function startServer() {
 
     res.json({ success: true });
   });
-
-  // API 404 handler
-  apiRouter.use((req, res) => {
-    console.log(`API Not Found: ${req.method} ${req.url}`);
-    res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
-  });
-
-  app.use("/backend", apiRouter);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
@@ -263,6 +245,16 @@ async function startServer() {
       res.sendFile(path.resolve(__dirname, "dist", "index.html"));
     });
   }
+
+  // Final catch-all for debugging
+  app.use((req, res) => {
+    console.log(`[SERVER 404] ${req.method} ${req.url}`);
+    if (req.url.startsWith('/api')) {
+      res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
+    } else {
+      res.status(404).send("Page not found");
+    }
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
