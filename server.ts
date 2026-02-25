@@ -61,13 +61,23 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Request logger
+  app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    next();
+  });
+
   // Health check
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", env: process.env.NODE_ENV });
+  app.get(["/api/health", "/api/health/"], (req, res) => {
+    res.json({ 
+      status: "ok", 
+      env: process.env.NODE_ENV,
+      time: new Date().toISOString()
+    });
   });
 
   // Auth Routes
-  app.post("/api/register", async (req, res) => {
+  app.post(["/api/register", "/api/register/"], async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: "Username and password are required" });
@@ -92,7 +102,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.post("/api/login", async (req, res) => {
+  app.post(["/api/login", "/api/login/"], async (req, res) => {
     const { username, password } = req.body;
     const { data, error } = await supabase
       .from('users')
@@ -118,7 +128,7 @@ async function startServer() {
   });
 
   // API Routes
-  app.get("/api/posts", async (req, res) => {
+  app.get(["/api/posts", "/api/posts/"], async (req, res) => {
     const { data, error } = await supabase
       .from('posts')
       .select('*')
@@ -128,7 +138,7 @@ async function startServer() {
     res.json(data || []);
   });
 
-  app.post("/api/posts", async (req, res) => {
+  app.post(["/api/posts", "/api/posts/"], async (req, res) => {
     const { username, content } = req.body;
     if (!username || !content) {
       return res.status(400).json({ error: "Username and content are required" });
