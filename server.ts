@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
+import { get } from '@vercel/edge-config';
 
 dotenv.config();
 
@@ -71,6 +72,17 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Vercel Edge Config Route
+  app.get("/welcome", async (req, res) => {
+    try {
+      const greeting = await get('greeting');
+      res.json(greeting);
+    } catch (error: any) {
+      console.error('Edge Config Error:', error);
+      res.status(500).json({ error: "Failed to fetch greeting", details: error.message });
+    }
+  });
 
   // GLOBAL LOG - Catch every single request
   app.use((req, res, next) => {
