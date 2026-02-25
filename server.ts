@@ -37,6 +37,9 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
  * INSERT INTO users (username, password) 
  * VALUES ('Ashur@admin.com', '12345678')
  * ON CONFLICT (username) DO NOTHING;
+ * 
+ * -- Note: For Google Auth, ensure you have configured the Google Provider 
+ * -- in the Supabase Auth dashboard and added the correct redirect URLs.
  */
 
 async function startServer() {
@@ -107,6 +110,17 @@ async function startServer() {
       return res.status(400).json({ error: "Username and content are required" });
     }
     
+    // Ensure user exists in our 'users' table (especially for Google Auth users)
+    // We use a dummy password for Google users since they don't use it.
+    const { error: userError } = await supabase
+      .from('users')
+      .upsert([{ username, password: 'google_authenticated_user' }], { onConflict: 'username' });
+
+    if (userError) {
+      console.error('Error ensuring user exists:', userError);
+      // We continue anyway, maybe the user already exists or RLS is disabled
+    }
+
     const { data, error } = await supabase
       .from('posts')
       .insert([{ username, content }])
