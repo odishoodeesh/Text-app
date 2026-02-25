@@ -127,17 +127,23 @@ export default function App() {
         body: JSON.stringify({ username, content: newPostContent.trim() }),
       });
       
-      const data = await response.json();
-      
-      if (response.ok) {
-        setNewPostContent('');
-        fetchPosts();
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+        const data = await response.json();
+        if (response.ok) {
+          setNewPostContent('');
+          fetchPosts();
+        } else {
+          setError(data.error || `Error ${response.status}: Failed to post`);
+        }
       } else {
-        setError(data.error || 'Failed to post');
+        const text = await response.text();
+        console.error('Non-JSON response:', text);
+        setError(`Server Error ${response.status}. Please check logs.`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to post:', error);
-      setError('Connection error. Please try again.');
+      setError(`Connection error: ${error.message || 'Unknown error'}`);
     } finally {
       setIsLoading(false);
     }

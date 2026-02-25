@@ -125,6 +125,11 @@ async function startServer() {
       return res.status(400).json({ error: "Username and content are required" });
     }
     
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('Supabase configuration missing');
+      return res.status(500).json({ error: "Server configuration error: Supabase key missing" });
+    }
+
     try {
       // Ensure user exists in our 'users' table (especially for Google Auth users)
       const { error: userError } = await supabase
