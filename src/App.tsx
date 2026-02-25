@@ -57,7 +57,9 @@ export default function App() {
 
   const fetchPosts = async () => {
     try {
-      const response = await fetch('/api/posts');
+      const url = '/api/posts';
+      console.log(`Fetching posts from: ${url}`);
+      const response = await fetch(url);
       const data = await response.json();
       setPosts(data);
     } catch (error) {
@@ -121,7 +123,9 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/posts', {
+      const url = '/api/posts';
+      console.log(`Fetching: ${url}`);
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, content: newPostContent.trim() }),

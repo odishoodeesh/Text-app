@@ -67,8 +67,10 @@ async function startServer() {
     next();
   });
 
+  const apiRouter = express.Router();
+
   // Health check
-  app.get(["/api/health", "/api/health/"], (req, res) => {
+  apiRouter.get("/health", (req, res) => {
     res.json({ 
       status: "ok", 
       env: process.env.NODE_ENV,
@@ -77,7 +79,7 @@ async function startServer() {
   });
 
   // Auth Routes
-  app.post(["/api/register", "/api/register/"], async (req, res) => {
+  apiRouter.post("/register", async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: "Username and password are required" });
@@ -102,7 +104,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.post(["/api/login", "/api/login/"], async (req, res) => {
+  apiRouter.post("/login", async (req, res) => {
     const { username, password } = req.body;
     const { data, error } = await supabase
       .from('users')
@@ -128,7 +130,7 @@ async function startServer() {
   });
 
   // API Routes
-  app.get(["/api/posts", "/api/posts/"], async (req, res) => {
+  apiRouter.get("/posts", async (req, res) => {
     const { data, error } = await supabase
       .from('posts')
       .select('*')
@@ -138,7 +140,7 @@ async function startServer() {
     res.json(data || []);
   });
 
-  app.post(["/api/posts", "/api/posts/"], async (req, res) => {
+  apiRouter.post("/posts", async (req, res) => {
     const { username, content } = req.body;
     if (!username || !content) {
       return res.status(400).json({ error: "Username and content are required" });
@@ -157,7 +159,6 @@ async function startServer() {
 
       if (userError) {
         console.error('Error ensuring user exists:', userError);
-        // We continue, but this might cause the post insert to fail if FK is active
       }
 
       const { data, error } = await supabase
@@ -177,6 +178,14 @@ async function startServer() {
       res.status(500).json({ error: err.message || "Internal server error" });
     }
   });
+
+  // API 404 handler
+  apiRouter.use((req, res) => {
+    console.log(`API Not Found: ${req.method} ${req.url}`);
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
+  });
+
+  app.use("/api", apiRouter);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
