@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Send, User, LogOut, MessageSquare, Lock, UserPlus, LogIn } from 'lucide-react';
+import { Send, User, LogOut, MessageSquare, Lock, UserPlus, LogIn, Edit2, Trash2, X, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createClient } from '@supabase/supabase-js';
 
@@ -22,6 +22,8 @@ export default function App() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [newPostContent, setNewPostContent] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [editingPostId, setEditingPostId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -155,6 +157,51 @@ export default function App() {
     } catch (error: any) {
       console.error('Failed to post:', error);
       setError(`Connection error: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleEdit = async (postId: number) => {
+    if (!editContent.trim() || !username) return;
+    setIsLoading(true);
+    try {
+      const response = await fetch(`/backend/posts/${postId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, content: editContent.trim() }),
+      });
+      if (response.ok) {
+        setEditingPostId(null);
+        fetchPosts();
+      } else {
+        const data = await response.json();
+        setError(data.error || 'Failed to update post');
+      }
+    } catch (err) {
+      setError('Connection error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDelete = async (postId: number) => {
+    if (!username || !window.confirm('Are you sure you want to delete this post?')) return;
+    setIsLoading(true);
+    try {
+      const response = await fetch(`/backend/posts/${postId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username }),
+      });
+      if (response.ok) {
+        fetchPosts();
+      } else {
+        const data = await response.json();
+        setError(data.error || 'Failed to delete post');
+      }
+    } catch (err) {
+      setError('Connection error');
     } finally {
       setIsLoading(false);
     }
@@ -354,13 +401,65 @@ export default function App() {
                     </div>
                     <span className="font-semibold text-zinc-900">{post.username}</span>
                   </div>
-                  <span className="text-xs text-zinc-400">
-                    {new Date(post.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-zinc-400">
+                      {new Date(post.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    {username === post.username && (
+                      <div className="flex items-center gap-1">
+                        <button 
+                          onClick={() => {
+                            setEditingPostId(post.id);
+                            setEditContent(post.content);
+                          }}
+                          className="p-1.5 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-all"
+                          title="Edit"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(post.id)}
+                          className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <p className="text-zinc-700 leading-relaxed whitespace-pre-wrap">
-                  {post.content}
-                </p>
+                {editingPostId === post.id ? (
+                  <div className="space-y-3">
+                    <textarea
+                      value={editContent}
+                      onChange={(e) => setEditContent(e.target.value)}
+                      className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black transition-all resize-none"
+                      rows={3}
+                      autoFocus
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => setEditingPostId(null)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => handleEdit(post.id)}
+                        disabled={isLoading || !editContent.trim()}
+                        className="flex items-center gap-1.5 bg-black text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                      >
+                        <Check className="w-4 h-4" />
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-zinc-700 leading-relaxed whitespace-pre-wrap">
+                    {post.content}
+                  </p>
+                )}
               </motion.div>
             ))}
           </AnimatePresence>

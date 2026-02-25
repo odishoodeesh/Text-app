@@ -190,6 +190,52 @@ async function startServer() {
     }
   });
 
+  apiRouter.put("/posts/:id", async (req, res) => {
+    const { id } = req.params;
+    const { username, content } = req.body;
+
+    if (!username || !content) {
+      return res.status(400).json({ error: "Username and content are required" });
+    }
+
+    const { data, error } = await supabase
+      .from('posts')
+      .update({ content })
+      .eq('id', id)
+      .eq('username', username) // Security: only owner can edit
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Supabase Update Error:', error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json(data);
+  });
+
+  apiRouter.delete("/posts/:id", async (req, res) => {
+    const { id } = req.params;
+    const { username } = req.body; // In a real app, this would come from a session/JWT
+
+    if (!username) {
+      return res.status(400).json({ error: "Username is required" });
+    }
+
+    const { error } = await supabase
+      .from('posts')
+      .delete()
+      .eq('id', id)
+      .eq('username', username); // Security: only owner can delete
+
+    if (error) {
+      console.error('Supabase Delete Error:', error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ success: true });
+  });
+
   // API 404 handler
   apiRouter.use((req, res) => {
     console.log(`API Not Found: ${req.method} ${req.url}`);
