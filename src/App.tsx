@@ -57,9 +57,16 @@ export default function App() {
 
   const fetchPosts = async () => {
     try {
-      const url = '/api/posts';
+      const url = '/backend/posts';
       console.log(`Fetching posts from: ${url}`);
       const response = await fetch(url);
+      
+      if (!response.ok) {
+        const text = await response.text();
+        console.error(`Fetch failed (${response.status}):`, text);
+        return;
+      }
+
       const data = await response.json();
       setPosts(data);
     } catch (error) {
@@ -70,7 +77,7 @@ export default function App() {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const endpoint = isRegistering ? '/api/register' : '/api/login';
+    const endpoint = isRegistering ? '/backend/register' : '/backend/login';
     
     try {
       const response = await fetch(endpoint, {
@@ -123,8 +130,8 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     try {
-      const url = '/api/posts';
-      console.log(`Fetching: ${url}`);
+      const url = '/backend/posts';
+      console.log(`Posting to: ${url}`);
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
