@@ -7,8 +7,6 @@ import { createClient } from "@supabase/supabase-js";
 
 dotenv.config();
 
-console.log(`[SERVER START] NODE_ENV: ${process.env.NODE_ENV}`);
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -17,154 +15,85 @@ const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsIn
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+app.use(express.json());
 
-  app.use(express.json());
+// GLOBAL LOG
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
 
-  // GLOBAL LOG - Catch every single request
-  app.use((req, res, next) => {
-    console.log(`[SERVER LOG] ${new Date().toISOString()} - ${req.method} ${req.url}`);
-    next();
-  });
+// Health check
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", time: new Date().toISOString() });
+});
 
-  // Health check
-  app.get("/api/health", (req, res) => {
-    res.json({ 
-      status: "ok", 
-      env: process.env.NODE_ENV,
-      time: new Date().toISOString()
-    });
-  });
+// Auth Routes
+app.post("/api/register", async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: "Required fields missing" });
+  
+  const { error } = await supabase.from('users').insert([{ username, password }]);
+  if (error) return res.status(400).json({ error: error.message });
+  res.json({ success: true });
+});
 
-  // Auth Routes
-  app.post("/api/register", async (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ error: "Username and password are required" });
-    }
-    
-    const { error } = await supabase
-      .from('users')
-      .insert([{ username, password }]);
+app.post("/api/login", async (req, res) => {
+  const { username, password } = req.body;
+  const { data: user, error } = await supabase.from('users').select('*').eq('username', username).eq('password', password).single();
+  if (error || !user) return res.status(401).json({ error: "Invalid credentials" });
+  res.json({ success: true, username: user.username });
+});
 
-    if (error) {
-      if (error.code === '23505') {
-        return res.status(400).json({ error: "Username already exists" });
-      }
-      return res.status(500).json({ error: error.message });
-    }
-    
-    res.json({ success: true });
-  });
+// API Routes
+app.get("/api/posts", async (req, res) => {
+  const { data: posts, error } = await supabase.from('posts').select('*').order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(posts || []);
+});
 
-  app.post("/api/login", async (req, res) => {
-    const { username, password } = req.body;
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('username', username)
-      .eq('password', password)
-      .single();
+app.post("/api/posts", async (req, res) => {
+  const { username, content } = req.body;
+  const { data: newPost, error } = await supabase.from('posts').insert([{ username, content }]).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(newPost);
+});
 
-    if (error || !user) {
-      return res.status(401).json({ error: "Invalid username or password" });
-    }
+app.put("/api/posts/:id", async (req, res) => {
+  const { id } = req.params;
+  const { username, content } = req.body;
+  const { data: updatedPost, error } = await supabase.from('posts').update({ content }).eq('id', id).eq('username', username).select().single();
+  if (error) return res.status(404).json({ error: "Update failed" });
+  res.json(updatedPost);
+});
 
-    res.json({ success: true, username: user.username });
-  });
+app.delete("/api/posts/:id", async (req, res) => {
+  const { id } = req.params;
+  const { username } = req.body;
+  const { error } = await supabase.from('posts').delete().eq('id', id).eq('username', username);
+  if (error) return res.status(404).json({ error: "Delete failed" });
+  res.json({ success: true });
+});
 
-  // API Routes
-  app.get("/api/posts", async (req, res) => {
-    const { data: posts, error } = await supabase
-      .from('posts')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(posts || []);
-  });
-
-  app.post("/api/posts", async (req, res) => {
-    const { username, content } = req.body;
-    if (!username || !content) {
-      return res.status(400).json({ error: "Username and content are required" });
-    }
-    
-    const { data: newPost, error } = await supabase
-      .from('posts')
-      .insert([{ username, content }])
-      .select()
-      .single();
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-    
-    res.json(newPost);
-  });
-
-  app.put("/api/posts/:id", async (req, res) => {
-    const { id } = req.params;
-    const { username, content } = req.body;
-
-    const { data: updatedPost, error } = await supabase
-      .from('posts')
-      .update({ content })
-      .eq('id', id)
-      .eq('username', username)
-      .select()
-      .single();
-    
-    if (error) {
-      return res.status(404).json({ error: "Post not found or unauthorized" });
-    }
-    res.json(updatedPost);
-  });
-
-  app.delete("/api/posts/:id", async (req, res) => {
-    const { id } = req.params;
-    const { username } = req.body;
-
-    const { error } = await supabase
-      .from('posts')
-      .delete()
-      .eq('id', id)
-      .eq('username', username);
-    
-    if (error) {
-      return res.status(404).json({ error: "Post not found or unauthorized" });
-    }
-    res.json({ success: true });
-  });
-
-  // Vite middleware for development
+// Vite / Static Serving
+async function setupFrontend() {
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
+    const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
   } else {
     app.use(express.static(path.resolve(__dirname, "dist")));
-    app.get("*", (req, res) => {
-      res.sendFile(path.resolve(__dirname, "dist", "index.html"));
-    });
+    app.get("*", (req, res) => res.sendFile(path.resolve(__dirname, "dist", "index.html")));
   }
+}
 
-  // Final catch-all for debugging
-  app.use((req, res) => {
-    if (req.url.startsWith('/api')) {
-      res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
-    } else {
-      res.status(404).send("Page not found");
-    }
-  });
+setupFrontend();
 
+if (process.env.NODE_ENV !== "production") {
+  const PORT = 3000;
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
-startServer();
+export default app;
