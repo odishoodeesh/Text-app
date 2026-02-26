@@ -85,17 +85,16 @@ export default function App() {
 
   const fetchPosts = async () => {
     try {
-      const url = '/api/posts';
-      const response = await fetch(url);
+      const { data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .order('created_at', { ascending: false });
       
-      if (!response.ok) {
-        return;
-      }
-
-      const data = await response.json();
-      setPosts(data);
-    } catch (error) {
+      if (error) throw error;
+      setPosts(data || []);
+    } catch (error: any) {
       console.error('Failed to fetch posts:', error);
+      setError(`Fetch error: ${error.message}`);
     }
   };
 
@@ -182,31 +181,23 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     try {
-      const url = '/api/posts';
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, email: userEmail, content: newPostContent.trim() }),
-      });
+      const { data, error } = await supabase
+        .from('posts')
+        .insert([{ 
+          user_id: userId, 
+          email: userEmail, 
+          content: newPostContent.trim() 
+        }])
+        .select()
+        .single();
       
-      const text = await response.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        setError(`Server Error: ${text.substring(0, 100)}`);
-        return;
-      }
+      if (error) throw error;
 
-      if (response.ok) {
-        setNewPostContent('');
-        fetchPosts();
-      } else {
-        setError(data.error || 'Failed to post');
-      }
+      setNewPostContent('');
+      fetchPosts();
     } catch (error: any) {
       console.error('Post error:', error);
-      setError(`Connection error: ${error.message}`);
+      setError(`Database error: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -216,20 +207,19 @@ export default function App() {
     if (!editContent.trim() || !userId) return;
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/posts/${postId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, content: editContent.trim() }),
-      });
-      if (response.ok) {
-        setEditingPostId(null);
-        fetchPosts();
-      } else {
-        const data = await response.json();
-        setError(data.error || 'Failed to update post');
-      }
-    } catch (err) {
-      setError('Connection error');
+      const { error } = await supabase
+        .from('posts')
+        .update({ content: editContent.trim() })
+        .eq('id', postId)
+        .eq('user_id', userId);
+
+      if (error) throw error;
+
+      setEditingPostId(null);
+      fetchPosts();
+    } catch (err: any) {
+      console.error('Edit error:', err);
+      setError(`Update failed: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -239,19 +229,17 @@ export default function App() {
     if (!userId || !window.confirm('Are you sure you want to delete this post?')) return;
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/posts/${postId}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId }),
-      });
-      if (response.ok) {
-        fetchPosts();
-      } else {
-        const data = await response.json();
-        setError(data.error || 'Failed to delete post');
-      }
-    } catch (err) {
-      setError('Connection error');
+      const { error } = await supabase
+        .from('posts')
+        .delete()
+        .eq('id', postId)
+        .eq('user_id', userId);
+
+      if (error) throw error;
+      fetchPosts();
+    } catch (err: any) {
+      console.error('Delete error:', err);
+      setError(`Delete failed: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
