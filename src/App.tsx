@@ -120,15 +120,24 @@ export default function App() {
         body: JSON.stringify({ username, content: newPostContent.trim() }),
       });
       
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        setError(`Server Error: ${text.substring(0, 100)}`);
+        return;
+      }
+
       if (response.ok) {
         setNewPostContent('');
         fetchPosts();
       } else {
-        const data = await response.json();
         setError(data.error || 'Failed to post');
       }
     } catch (error: any) {
-      setError('Connection error');
+      console.error('Post error:', error);
+      setError(`Connection error: ${error.message}`);
     } finally {
       setIsLoading(false);
     }

@@ -15,52 +15,76 @@ const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsIn
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-const app = express();
-app.use(express.json());
+async function startServer() {
+  const app = express();
+  app.use(express.json());
 
-// GLOBAL LOG
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next();
-});
+  // GLOBAL LOG
+  app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    next();
+  });
 
-// Health check
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", time: new Date().toISOString() });
-});
+  // Health check
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", time: new Date().toISOString() });
+  });
 
-// API Routes
-app.get("/api/posts", async (req, res) => {
-  const { data: posts, error } = await supabase.from('posts').select('*').order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(posts || []);
-});
+  // API Routes
+  app.get("/api/posts", async (req, res) => {
+    try {
+      const { data: posts, error } = await supabase.from('posts').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      res.json(posts || []);
+    } catch (err: any) {
+      console.error("GET /api/posts error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-app.post("/api/posts", async (req, res) => {
-  const { username, content } = req.body;
-  const { data: newPost, error } = await supabase.from('posts').insert([{ username, content }]).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(newPost);
-});
+  app.post("/api/posts", async (req, res) => {
+    try {
+      const { username, content } = req.body;
+      if (!username || !content) {
+        return res.status(400).json({ error: "Username and content are required" });
+      }
+      console.log(`Attempting to post for user: ${username}`);
+      const { data: newPost, error } = await supabase.from('posts').insert([{ username, content }]).select().single();
+      if (error) throw error;
+      res.json(newPost);
+    } catch (err: any) {
+      console.error("POST /api/posts error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-app.put("/api/posts/:id", async (req, res) => {
-  const { id } = req.params;
-  const { username, content } = req.body;
-  const { data: updatedPost, error } = await supabase.from('posts').update({ content }).eq('id', id).eq('username', username).select().single();
-  if (error) return res.status(404).json({ error: "Update failed" });
-  res.json(updatedPost);
-});
+  app.put("/api/posts/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { username, content } = req.body;
+      const { data: updatedPost, error } = await supabase.from('posts').update({ content }).eq('id', id).eq('username', username).select().single();
+      if (error) throw error;
+      res.json(updatedPost);
+    } catch (err: any) {
+      console.error("PUT /api/posts error:", err);
+      res.status(404).json({ error: "Update failed: " + err.message });
+    }
+  });
 
-app.delete("/api/posts/:id", async (req, res) => {
-  const { id } = req.params;
-  const { username } = req.body;
-  const { error } = await supabase.from('posts').delete().eq('id', id).eq('username', username);
-  if (error) return res.status(404).json({ error: "Delete failed" });
-  res.json({ success: true });
-});
+  app.delete("/api/posts/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { username } = req.body;
+      const { error } = await supabase.from('posts').delete().eq('id', id).eq('username', username);
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("DELETE /api/posts error:", err);
+      res.status(404).json({ error: "Delete failed: " + err.message });
+    }
+  });
 
-// Vite / Static Serving
-async function setupFrontend() {
+  // Vite / Static Serving
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
@@ -68,15 +92,24 @@ async function setupFrontend() {
     app.use(express.static(path.resolve(__dirname, "dist")));
     app.get("*", (req, res) => res.sendFile(path.resolve(__dirname, "dist", "index.html")));
   }
-}
 
-setupFrontend();
+  // Final catch-all for debugging
+  app.use((req, res) => {
+    if (req.url.startsWith('/api')) {
+      res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
+    } else {
+      res.status(404).send("Page not found");
+    }
+  });
 
-if (process.env.NODE_ENV !== "production") {
   const PORT = 3000;
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
+
+  return app;
 }
 
-export default app;
+const appPromise = startServer();
+
+export default appPromise;
