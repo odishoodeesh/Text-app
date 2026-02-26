@@ -9,15 +9,17 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface Post {
   id: number;
-  username: string;
+  user_id: string;
+  email: string;
   content: string;
   created_at: string;
 }
 
 export default function App() {
-  const [username, setUsername] = useState<string | null>(localStorage.getItem('textpost_user'));
+  const [userEmail, setUserEmail] = useState<string | null>(localStorage.getItem('textpost_user_email'));
+  const [userId, setUserId] = useState<string | null>(localStorage.getItem('textpost_user_id'));
   const [isRegistering, setIsRegistering] = useState(false);
-  const [loginUsername, setLoginUsername] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [posts, setPosts] = useState<Post[]>([]);
   const [newPostContent, setNewPostContent] = useState('');
@@ -32,13 +34,21 @@ export default function App() {
     fetch('/api/health')
       .then(res => res.ok ? setDbStatus('connected') : setDbStatus('error'))
       .catch(() => setDbStatus('error'));
+    
+    // Check current session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUserEmail(session.user.email!);
+        setUserId(session.user.id);
+      }
+    });
   }, []);
 
   useEffect(() => {
-    if (username) {
+    if (userEmail) {
       fetchPosts();
     }
-  }, [username]);
+  }, [userEmail]);
 
   const fetchPosts = async () => {
     try {
@@ -64,30 +74,33 @@ export default function App() {
     try {
       if (isRegistering) {
         const { data, error } = await supabase.auth.signUp({
-          email: loginUsername,
+          email: loginEmail,
           password: loginPassword,
         });
         
         if (error) throw error;
         
         if (data.user && data.session) {
-          // Signed up and logged in immediately
-          localStorage.setItem('textpost_user', data.user.email!);
-          setUsername(data.user.email!);
+          localStorage.setItem('textpost_user_email', data.user.email!);
+          localStorage.setItem('textpost_user_id', data.user.id);
+          setUserEmail(data.user.email!);
+          setUserId(data.user.id);
         } else {
           setError('Check your email for a confirmation link!');
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
-          email: loginUsername,
+          email: loginEmail,
           password: loginPassword,
         });
         
         if (error) throw error;
         
         if (data.user) {
-          localStorage.setItem('textpost_user', data.user.email!);
-          setUsername(data.user.email!);
+          localStorage.setItem('textpost_user_email', data.user.email!);
+          localStorage.setItem('textpost_user_id', data.user.id);
+          setUserEmail(data.user.email!);
+          setUserId(data.user.id);
         }
       }
     } catch (err: any) {
@@ -99,16 +112,18 @@ export default function App() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    localStorage.removeItem('textpost_user');
-    setUsername(null);
-    setLoginUsername('');
+    localStorage.removeItem('textpost_user_email');
+    localStorage.removeItem('textpost_user_id');
+    setUserEmail(null);
+    setUserId(null);
+    setLoginEmail('');
     setLoginPassword('');
     setError(null);
   };
 
   const handlePost = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPostContent.trim() || !username) return;
+    if (!newPostContent.trim() || !userId) return;
 
     setIsLoading(true);
     setError(null);
@@ -117,7 +132,7 @@ export default function App() {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, content: newPostContent.trim() }),
+        body: JSON.stringify({ user_id: userId, email: userEmail, content: newPostContent.trim() }),
       });
       
       const text = await response.text();
@@ -144,13 +159,13 @@ export default function App() {
   };
 
   const handleEdit = async (postId: number) => {
-    if (!editContent.trim() || !username) return;
+    if (!editContent.trim() || !userId) return;
     setIsLoading(true);
     try {
       const response = await fetch(`/api/posts/${postId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, content: editContent.trim() }),
+        body: JSON.stringify({ user_id: userId, content: editContent.trim() }),
       });
       if (response.ok) {
         setEditingPostId(null);
@@ -167,13 +182,13 @@ export default function App() {
   };
 
   const handleDelete = async (postId: number) => {
-    if (!username || !window.confirm('Are you sure you want to delete this post?')) return;
+    if (!userId || !window.confirm('Are you sure you want to delete this post?')) return;
     setIsLoading(true);
     try {
       const response = await fetch(`/api/posts/${postId}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ user_id: userId }),
       });
       if (response.ok) {
         fetchPosts();
@@ -188,7 +203,7 @@ export default function App() {
     }
   };
 
-  if (!username) {
+  if (!userEmail) {
     return (
       <div className="min-h-screen bg-[#f5f5f5] flex items-center justify-center p-4 font-sans">
         <motion.div 
@@ -208,7 +223,7 @@ export default function App() {
 
           <form onSubmit={handleAuth} className="space-y-4">
             {error && (
-              <div className={`p-3 rounded-xl text-sm ${error.includes('successful') ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+              <div className={`p-3 rounded-xl text-sm ${error.includes('successful') || error.includes('Check your email') ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
                 {error}
               </div>
             )}
@@ -217,8 +232,8 @@ export default function App() {
               <input
                 type="email"
                 placeholder="Email Address"
-                value={loginUsername}
-                onChange={(e) => setLoginUsername(e.target.value)}
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
                 className="w-full pl-12 pr-4 py-4 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black transition-all"
                 required
               />
@@ -274,7 +289,7 @@ export default function App() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-100 rounded-full">
               <User className="w-4 h-4 text-zinc-500" />
-              <span className="text-sm font-medium text-zinc-700">{username}</span>
+              <span className="text-sm font-medium text-zinc-700">{userEmail}</span>
             </div>
             <button 
               onClick={handleLogout}
@@ -346,13 +361,13 @@ export default function App() {
                     <div className="w-8 h-8 bg-zinc-100 rounded-full flex items-center justify-center">
                       <User className="w-4 h-4 text-zinc-500" />
                     </div>
-                    <span className="font-semibold text-zinc-900">{post.username}</span>
+                    <span className="font-semibold text-zinc-900">{post.email}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-zinc-400">
                       {new Date(post.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
-                    {username === post.username && (
+                    {userId === post.user_id && (
                       <div className="flex items-center gap-1">
                         <button 
                           onClick={() => {

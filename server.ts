@@ -44,12 +44,12 @@ async function startServer() {
 
   app.post("/api/posts", async (req, res) => {
     try {
-      const { username, content } = req.body;
-      if (!username || !content) {
-        return res.status(400).json({ error: "Username and content are required" });
+      const { user_id, email, content } = req.body;
+      if (!user_id || !content) {
+        return res.status(400).json({ error: "User ID and content are required" });
       }
-      console.log(`Attempting to post for user: ${username}`);
-      const { data: newPost, error } = await supabase.from('posts').insert([{ username, content }]).select().single();
+      console.log(`Attempting to post for user_id: ${user_id}`);
+      const { data: newPost, error } = await supabase.from('posts').insert([{ user_id, email, content }]).select().single();
       if (error) throw error;
       res.json(newPost);
     } catch (err: any) {
@@ -61,8 +61,8 @@ async function startServer() {
   app.put("/api/posts/:id", async (req, res) => {
     try {
       const { id } = req.params;
-      const { username, content } = req.body;
-      const { data: updatedPost, error } = await supabase.from('posts').update({ content }).eq('id', id).eq('username', username).select().single();
+      const { user_id, content } = req.body;
+      const { data: updatedPost, error } = await supabase.from('posts').update({ content }).eq('id', id).eq('user_id', user_id).select().single();
       if (error) throw error;
       res.json(updatedPost);
     } catch (err: any) {
@@ -74,8 +74,8 @@ async function startServer() {
   app.delete("/api/posts/:id", async (req, res) => {
     try {
       const { id } = req.params;
-      const { username } = req.body;
-      const { error } = await supabase.from('posts').delete().eq('id', id).eq('username', username);
+      const { user_id } = req.body;
+      const { error } = await supabase.from('posts').delete().eq('id', id).eq('user_id', user_id);
       if (error) throw error;
       res.json({ success: true });
     } catch (err: any) {
