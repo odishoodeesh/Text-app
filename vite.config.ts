@@ -7,10 +7,9 @@ export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
     plugins: [react(), tailwindcss()],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env.SUPABASE_URL': JSON.stringify(env.SUPABASE_URL || "https://zkblysthqcmspaxiodur.supabase.co"),
-      'process.env.SUPABASE_ANON_KEY': JSON.stringify(env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprYmx5c3RocWNtc3BheGlvZHVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NDY2NjEsImV4cCI6MjA4NzUyMjY2MX0.i3Cl5vM4pBUQxL_sZIOwuWDzD8IDVONRZ477-ZszQxU"),
+        define: {
+      'process.env.SUPABASE_URL': JSON.stringify(env.SUPABASE_URL || "https://xwmdotzhgerirsydgbnc.supabase.co"),
+      'process.env.SUPABASE_ANON_KEY': JSON.stringify(env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3bWRvdHpoZ2VyaXJzeWRnYm5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNDc5MzIsImV4cCI6MjA4NzYyMzkzMn0.qFulksccdbSPx4marSQ3euFbfO1TqaosEO2rumwndjc"),
     },
     resolve: {
       alias: {
@@ -19,7 +18,7 @@ export default defineConfig(({mode}) => {
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
+      // Do not modifyâ€”file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
     },
   };
