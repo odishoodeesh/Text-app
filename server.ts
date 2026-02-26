@@ -29,23 +29,6 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", time: new Date().toISOString() });
 });
 
-// Auth Routes
-app.post("/api/register", async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: "Required fields missing" });
-  
-  const { error } = await supabase.from('users').insert([{ username, password }]);
-  if (error) return res.status(400).json({ error: error.message });
-  res.json({ success: true });
-});
-
-app.post("/api/login", async (req, res) => {
-  const { username, password } = req.body;
-  const { data: user, error } = await supabase.from('users').select('*').eq('username', username).eq('password', password).single();
-  if (error || !user) return res.status(401).json({ error: "Invalid credentials" });
-  res.json({ success: true, username: user.username });
-});
-
 // API Routes
 app.get("/api/posts", async (req, res) => {
   const { data: posts, error } = await supabase.from('posts').select('*').order('created_at', { ascending: false });

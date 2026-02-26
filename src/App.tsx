@@ -59,34 +59,46 @@ export default function App() {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const endpoint = isRegistering ? '/api/register' : '/api/login';
+    setIsLoading(true);
     
     try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: loginUsername, password: loginPassword }),
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok) {
-        if (isRegistering) {
-          setIsRegistering(false);
-          setError('Registration successful! Please log in.');
+      if (isRegistering) {
+        const { data, error } = await supabase.auth.signUp({
+          email: loginUsername,
+          password: loginPassword,
+        });
+        
+        if (error) throw error;
+        
+        if (data.user && data.session) {
+          // Signed up and logged in immediately
+          localStorage.setItem('textpost_user', data.user.email!);
+          setUsername(data.user.email!);
         } else {
-          localStorage.setItem('textpost_user', data.username);
-          setUsername(data.username);
+          setError('Check your email for a confirmation link!');
         }
       } else {
-        setError(data.error || 'Authentication failed');
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: loginUsername,
+          password: loginPassword,
+        });
+        
+        if (error) throw error;
+        
+        if (data.user) {
+          localStorage.setItem('textpost_user', data.user.email!);
+          setUsername(data.user.email!);
+        }
       }
-    } catch (err) {
-      setError('Something went wrong');
+    } catch (err: any) {
+      setError(err.message || 'Authentication failed');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     localStorage.removeItem('textpost_user');
     setUsername(null);
     setLoginUsername('');
@@ -194,8 +206,8 @@ export default function App() {
             <div className="relative">
               <User className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 w-5 h-5" />
               <input
-                type="text"
-                placeholder="Username"
+                type="email"
+                placeholder="Email Address"
                 value={loginUsername}
                 onChange={(e) => setLoginUsername(e.target.value)}
                 className="w-full pl-12 pr-4 py-4 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black transition-all"
