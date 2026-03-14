@@ -1,5 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Send, User, LogOut, MessageSquare, Lock, UserPlus, LogIn, Edit2, Trash2, X, Check } from 'lucide-react';
+import { 
+  Send, 
+  User, 
+  LogOut, 
+  MessageSquare, 
+  Lock, 
+  UserPlus, 
+  LogIn, 
+  Edit2, 
+  Trash2, 
+  X, 
+  Check,
+  Heart,
+  Share2
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createClient } from '@supabase/supabase-js';
 
@@ -13,6 +27,19 @@ interface Post {
   email: string;
   content: string;
   created_at: string;
+  likes_count?: number;
+  user_has_liked?: boolean;
+}
+
+interface Comment {
+  id: number;
+  post_id: number;
+  user_id: string;
+  parent_id: number | null;
+  content: string;
+  created_at: string;
+  user_email?: string;
+  replies?: Comment[];
 }
 
 export default function App() {
@@ -22,6 +49,10 @@ export default function App() {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [posts, setPosts] = useState<Post[]>([]);
+  const [comments, setComments] = useState<Record<number, Comment[]>>({});
+  const [activeCommentPostId, setActiveCommentPostId] = useState<number | null>(null);
+  const [newCommentContent, setNewCommentContent] = useState('');
+  const [replyingToId, setReplyingToId] = useState<number | null>(null);
   const [newPostContent, setNewPostContent] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [editingPostId, setEditingPostId] = useState<number | null>(null);
@@ -85,16 +116,91 @@ export default function App() {
 
   const fetchPosts = async () => {
     try {
-      const { data, error } = await supabase
+      // Fetch posts
+      const { data: postsData, error: postsError } = await supabase
         .from('posts')
         .select('*')
         .order('created_at', { ascending: false });
       
-      if (error) throw error;
-      setPosts(data || []);
+      if (postsError) throw postsError;
+
+      // Fetch likes for these posts
+      const { data: likesData } = await supabase
+        .from('likes')
+        .select('post_id, user_id');
+
+      const processedPosts = (postsData || []).map(post => {
+        const postLikes = (likesData || []).filter(l => l.post_id === post.id);
+        return {
+          ...post,
+          likes_count: postLikes.length,
+          user_has_liked: userId ? postLikes.some(l => l.user_id === userId) : false
+        };
+      });
+
+      setPosts(processedPosts);
     } catch (error: any) {
       console.error('Failed to fetch posts:', error);
       setError(`Fetch error: ${error.message}`);
+    }
+  };
+
+  const fetchComments = async (postId: number) => {
+    try {
+      const { data, error } = await supabase
+        .from('comments')
+        .select(`
+          *,
+          users (email)
+        `)
+        .eq('post_id', postId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      const formattedComments = (data || []).map(c => ({
+        ...c,
+        user_email: (c.users as any)?.email || 'Unknown'
+      }));
+
+      setComments(prev => ({ ...prev, [postId]: formattedComments }));
+    } catch (error: any) {
+      console.error('Failed to fetch comments:', error);
+    }
+  };
+
+  const handleToggleLike = async (postId: number, hasLiked: boolean) => {
+    if (!userId) return;
+    try {
+      if (hasLiked) {
+        await supabase.from('likes').delete().eq('post_id', postId).eq('user_id', userId);
+      } else {
+        await supabase.from('likes').insert([{ post_id: postId, user_id: userId }]);
+      }
+      fetchPosts();
+    } catch (error) {
+      console.error('Like error:', error);
+    }
+  };
+
+  const handleAddComment = async (postId: number, parentId: number | null = null) => {
+    if (!newCommentContent.trim() || !userId) return;
+    try {
+      const { error } = await supabase
+        .from('comments')
+        .insert([{
+          post_id: postId,
+          user_id: userId,
+          parent_id: parentId,
+          content: newCommentContent.trim()
+        }]);
+
+      if (error) throw error;
+      setNewCommentContent('');
+      setReplyingToId(null);
+      fetchComments(postId);
+    } catch (error) {
+      console.error('Comment error:', error);
     }
   };
 
@@ -247,71 +353,71 @@ export default function App() {
 
   if (!userEmail) {
     return (
-      <div className="min-h-screen bg-[#f5f5f5] flex items-center justify-center p-4 font-sans">
+      <div className="min-h-screen bg-black flex items-center justify-center p-4 font-sans">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md bg-white rounded-3xl shadow-sm p-8 border border-black/5"
+          className="w-full max-w-md bg-black rounded-3xl p-8 border border-zinc-800"
         >
           <div className="flex flex-col items-center mb-8">
-            <div className="w-16 h-16 bg-black rounded-2xl flex items-center justify-center mb-4">
-              <MessageSquare className="text-white w-8 h-8" />
+            <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-4">
+              <MessageSquare className="text-black w-8 h-8" />
             </div>
-            <h1 className="text-2xl font-semibold text-zinc-900">TextPost</h1>
-            <p className="text-zinc-500 text-sm mt-1">
+            <h1 className="text-3xl font-bold text-white tracking-tight">TextPost</h1>
+            <p className="text-zinc-500 text-sm mt-2">
               {isRegistering ? 'Create a new account' : 'Log in to your account'}
             </p>
           </div>
 
           <form onSubmit={handleAuth} className="space-y-4">
             {error && (
-              <div className={`p-3 rounded-xl text-sm ${error.includes('successful') || error.includes('Check your email') ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+              <div className={`p-4 rounded-xl text-sm font-medium ${error.includes('successful') || error.includes('Check your email') ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
                 {error}
               </div>
             )}
             <div className="relative">
-              <User className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 w-5 h-5" />
+              <User className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 w-5 h-5" />
               <input
                 type="email"
                 placeholder="Email Address"
                 value={loginEmail}
                 onChange={(e) => setLoginEmail(e.target.value)}
-                className="w-full pl-12 pr-4 py-4 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black transition-all"
+                className="w-full pl-12 pr-4 py-4 bg-zinc-900 border border-zinc-800 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-white/10 focus:border-zinc-700 transition-all"
                 required
               />
             </div>
             <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 w-5 h-5" />
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 w-5 h-5" />
               <input
                 type="password"
                 placeholder="Password"
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
-                className="w-full pl-12 pr-4 py-4 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black transition-all"
+                className="w-full pl-12 pr-4 py-4 bg-zinc-900 border border-zinc-800 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-white/10 focus:border-zinc-700 transition-all"
                 required
               />
             </div>
             <button
               type="submit"
-              className="w-full bg-black text-white py-4 rounded-2xl font-medium hover:bg-zinc-800 transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
+              className="w-full bg-white text-black py-4 rounded-full font-bold hover:bg-zinc-200 transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
             >
               {isRegistering ? <UserPlus className="w-5 h-5" /> : <LogIn className="w-5 h-5" />}
               {isRegistering ? 'Register' : 'Login'}
             </button>
 
-            <div className="relative my-6">
+            <div className="relative my-8">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-zinc-200"></div>
+                <div className="w-full border-t border-zinc-800"></div>
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-zinc-500">Or continue with</span>
+                <span className="px-4 bg-black text-zinc-500">Or continue with</span>
               </div>
             </div>
 
             <button
               type="button"
               onClick={handleGoogleLogin}
-              className="w-full bg-white border border-zinc-200 text-zinc-700 py-4 rounded-2xl font-medium hover:bg-zinc-50 transition-colors active:scale-[0.98] flex items-center justify-center gap-3"
+              className="w-full bg-black border border-zinc-800 text-white py-4 rounded-full font-bold hover:bg-zinc-900 transition-colors active:scale-[0.98] flex items-center justify-center gap-3"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24">
                 <path
@@ -335,13 +441,13 @@ export default function App() {
             </button>
           </form>
 
-          <div className="mt-6 text-center">
+          <div className="mt-8 text-center">
             <button 
               onClick={() => {
                 setIsRegistering(!isRegistering);
                 setError(null);
               }}
-              className="text-sm text-zinc-500 hover:text-black transition-colors"
+              className="text-sm text-zinc-500 hover:text-white transition-colors"
             >
               {isRegistering ? 'Already have an account? Log in' : "Don't have an account? Register"}
             </button>
@@ -352,25 +458,25 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f5f5] font-sans pb-20">
+    <div className="min-h-screen bg-black font-sans pb-20 text-white">
       {/* Header */}
-      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-black/5">
+      <header className="sticky top-0 z-10 bg-black/80 backdrop-blur-md border-b border-zinc-800">
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
-                <MessageSquare className="text-white w-4 h-4" />
+              <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center">
+                <MessageSquare className="text-black w-4 h-4" />
               </div>
-              <span className="font-semibold text-zinc-900">TextPost</span>
+              <span className="font-bold text-xl tracking-tight">TextPost</span>
               <div className={`ml-2 w-2 h-2 rounded-full ${dbStatus === 'connected' ? 'bg-emerald-500' : dbStatus === 'error' ? 'bg-red-500' : 'bg-amber-500 animate-pulse'}`} title={dbStatus === 'connected' ? 'Server Connected' : 'Server Connection Error'} />
             </div>
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-100 rounded-full">
+            <div className="hidden sm:flex items-center gap-2 px-4 py-1.5 bg-zinc-900 rounded-full border border-zinc-800">
               <User className="w-4 h-4 text-zinc-500" />
-              <span className="text-sm font-medium text-zinc-700">{userEmail}</span>
+              <span className="text-sm font-medium text-zinc-300">{userEmail}</span>
             </div>
             <button 
               onClick={handleLogout}
-              className="p-2 text-zinc-400 hover:text-zinc-900 transition-colors"
+              className="p-2 text-zinc-500 hover:text-white transition-colors"
               title="Logout"
             >
               <LogOut className="w-5 h-5" />
@@ -387,125 +493,271 @@ export default function App() {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="mb-4 p-4 bg-red-50 text-red-600 rounded-2xl text-sm border border-red-100 flex items-center justify-between"
+              className="mb-4 p-4 bg-red-500/10 text-red-400 rounded-xl text-sm border border-red-500/20 flex items-center justify-between"
             >
               <span>{error}</span>
-              <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600">✕</button>
+              <button onClick={() => setError(null)} className="text-red-400/50 hover:text-red-400 transition-colors">✕</button>
             </motion.div>
           )}
         </AnimatePresence>
 
         {/* Post Form */}
-        <div className="bg-white rounded-3xl shadow-sm p-6 border border-black/5 mb-8">
+        <div className="bg-black border-b border-zinc-800 p-6 mb-4">
           <form onSubmit={handlePost}>
-            <textarea
-              placeholder="What's on your mind?"
-              value={newPostContent}
-              onChange={(e) => setNewPostContent(e.target.value)}
-              className="w-full min-h-[120px] p-4 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black transition-all resize-none mb-4"
-              required
-            />
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={isLoading || !newPostContent.trim()}
-                className="flex items-center gap-2 bg-black text-white px-6 py-2.5 rounded-xl font-medium hover:bg-zinc-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
-              >
-                {isLoading ? 'Posting...' : (
-                  <>
-                    <span>Post</span>
-                    <Send className="w-4 h-4" />
-                  </>
-                )}
-              </button>
+            <div className="flex gap-4">
+              <div className="w-10 h-10 bg-zinc-800 rounded-full flex items-center justify-center shrink-0">
+                <User className="w-5 h-5 text-zinc-500" />
+              </div>
+              <div className="flex-1">
+                <textarea
+                  placeholder="What's happening?!"
+                  value={newPostContent}
+                  onChange={(e) => setNewPostContent(e.target.value)}
+                  className="w-full min-h-[100px] py-2 bg-transparent text-xl text-white placeholder-zinc-500 focus:outline-none transition-all resize-none"
+                  required
+                />
+                <div className="flex justify-end pt-4 border-t border-zinc-900">
+                  <button
+                    type="submit"
+                    disabled={isLoading || !newPostContent.trim()}
+                    className="flex items-center gap-2 bg-white text-black px-6 py-2 rounded-full font-bold hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+                  >
+                    {isLoading ? 'Posting...' : 'Post'}
+                  </button>
+                </div>
+              </div>
             </div>
           </form>
         </div>
 
         {/* Posts List */}
-        <div className="space-y-4">
+        <div className="divide-y divide-zinc-800">
           <AnimatePresence mode="popLayout">
             {posts.map((post) => (
               <motion.div
                 key={post.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-white rounded-2xl p-6 border border-black/5 shadow-sm"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="p-6 hover:bg-zinc-900/30 transition-colors cursor-pointer"
               >
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-zinc-100 rounded-full flex items-center justify-center">
-                      <User className="w-4 h-4 text-zinc-500" />
-                    </div>
-                    <span className="font-semibold text-zinc-900">{post.email}</span>
+                <div className="flex gap-4">
+                  <div className="w-10 h-10 bg-zinc-800 rounded-full flex items-center justify-center shrink-0">
+                    <User className="w-5 h-5 text-zinc-500" />
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-zinc-400">
-                      {new Date(post.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    {userId === post.user_id && (
-                      <div className="flex items-center gap-1">
-                        <button 
-                          onClick={() => {
-                            setEditingPostId(post.id);
-                            setEditContent(post.content);
-                          }}
-                          className="p-1.5 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-all"
-                          title="Edit"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button 
-                          onClick={() => handleDelete(post.id)}
-                          className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-bold text-white truncate">{post.email.split('@')[0]}</span>
+                        <span className="text-zinc-500 text-sm truncate">@{post.email.split('@')[0]}</span>
+                        <span className="text-zinc-500 text-sm">·</span>
+                        <span className="text-zinc-500 text-sm whitespace-nowrap">
+                          {new Date(post.created_at).toLocaleString([], { month: 'short', day: 'numeric' })}
+                        </span>
+                      </div>
+                      {userId === post.user_id && (
+                        <div className="flex items-center gap-1">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingPostId(post.id);
+                              setEditContent(post.content);
+                            }}
+                            className="p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-full transition-all"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(post.id);
+                            }}
+                            className="p-2 text-zinc-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-all"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {editingPostId === post.id ? (
+                      <div className="space-y-3 mt-2">
+                        <textarea
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          className="w-full p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-white/10 transition-all resize-none"
+                          rows={3}
+                          autoFocus
+                        />
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => setEditingPostId(null)}
+                            className="px-4 py-1.5 text-sm font-bold text-zinc-500 hover:text-white transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => handleEdit(post.id)}
+                            disabled={isLoading || !editContent.trim()}
+                            className="bg-white text-black px-4 py-1.5 rounded-full text-sm font-bold hover:bg-zinc-200 transition-colors disabled:opacity-50"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-4">
+                        <p className="text-zinc-200 leading-relaxed whitespace-pre-wrap text-[15px]">
+                          {post.content}
+                        </p>
+                        
+                        <div className="flex items-center justify-between max-w-md pt-2">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleLike(post.id, !!post.user_has_liked);
+                            }}
+                            className={`flex items-center gap-2 text-sm transition-colors group ${post.user_has_liked ? 'text-pink-500' : 'text-zinc-500 hover:text-pink-500'}`}
+                          >
+                            <div className={`p-2 rounded-full group-hover:bg-pink-500/10 transition-colors`}>
+                              <Heart className={`w-4 h-4 ${post.user_has_liked ? 'fill-current' : ''}`} />
+                            </div>
+                            <span className="font-medium">{post.likes_count || 0}</span>
+                          </button>
+
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (activeCommentPostId === post.id) {
+                                setActiveCommentPostId(null);
+                              } else {
+                                setActiveCommentPostId(post.id);
+                                fetchComments(post.id);
+                              }
+                            }}
+                            className="flex items-center gap-2 text-sm transition-colors group text-zinc-500 hover:text-sky-500"
+                          >
+                            <div className="p-2 rounded-full group-hover:bg-sky-500/10 transition-colors">
+                              <MessageSquare className="w-4 h-4" />
+                            </div>
+                            <span className="font-medium">Comment</span>
+                          </button>
+
+                          <button className="p-2 text-zinc-500 hover:text-sky-500 hover:bg-sky-500/10 rounded-full transition-colors">
+                            <Share2 className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        {/* Comments Section */}
+                        <AnimatePresence>
+                          {activeCommentPostId === post.id && (
+                            <motion.div 
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: 'auto' }}
+                              exit={{ opacity: 0, height: 0 }}
+                              className="space-y-4 pt-4 overflow-hidden"
+                            >
+                              <div className="flex gap-3">
+                                <div className="w-8 h-8 bg-zinc-800 rounded-full flex items-center justify-center shrink-0">
+                                  <User className="w-4 h-4 text-zinc-500" />
+                                </div>
+                                <div className="flex-1 flex gap-2">
+                                  <input 
+                                    type="text"
+                                    placeholder="Post your reply"
+                                    value={newCommentContent}
+                                    onChange={(e) => setNewCommentContent(e.target.value)}
+                                    className="flex-1 bg-transparent border-b border-zinc-800 py-1 text-sm text-white focus:outline-none focus:border-sky-500 transition-colors"
+                                  />
+                                  <button 
+                                    onClick={() => handleAddComment(post.id)}
+                                    disabled={!newCommentContent.trim()}
+                                    className="bg-sky-500 text-white px-4 py-1 rounded-full text-sm font-bold hover:bg-sky-600 disabled:opacity-50"
+                                  >
+                                    Reply
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="space-y-6 ml-11">
+                                {(comments[post.id] || [])
+                                  .filter(c => !c.parent_id)
+                                  .map(comment => (
+                                    <div key={comment.id} className="space-y-2">
+                                      <div className="flex gap-3">
+                                        <div className="w-8 h-8 bg-zinc-800 rounded-full flex items-center justify-center shrink-0">
+                                          <User className="w-4 h-4 text-zinc-500" />
+                                        </div>
+                                        <div className="flex-1">
+                                          <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-sm font-bold text-white">{comment.user_email.split('@')[0]}</span>
+                                            <span className="text-zinc-500 text-xs">· {new Date(comment.created_at).toLocaleDateString()}</span>
+                                          </div>
+                                          <p className="text-[15px] text-zinc-200">{comment.content}</p>
+                                          <button 
+                                            onClick={() => setReplyingToId(replyingToId === comment.id ? null : comment.id)}
+                                            className="text-xs font-bold text-zinc-500 hover:text-sky-500 mt-2"
+                                          >
+                                            Reply
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {/* Replies */}
+                                      <div className="ml-11 space-y-4">
+                                        {(comments[post.id] || [])
+                                          .filter(r => r.parent_id === comment.id)
+                                          .map(reply => (
+                                            <div key={reply.id} className="flex gap-3">
+                                              <div className="w-6 h-6 bg-zinc-800 rounded-full flex items-center justify-center shrink-0">
+                                                <User className="w-3 h-3 text-zinc-500" />
+                                              </div>
+                                              <div>
+                                                <div className="flex items-center gap-2 mb-0.5">
+                                                  <span className="text-sm font-bold text-white">{reply.user_email.split('@')[0]}</span>
+                                                </div>
+                                                <p className="text-sm text-zinc-300">{reply.content}</p>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        
+                                        {replyingToId === comment.id && (
+                                          <div className="flex gap-2 pt-2">
+                                            <input 
+                                              autoFocus
+                                              type="text"
+                                              placeholder="Post your reply"
+                                              value={newCommentContent}
+                                              onChange={(e) => setNewCommentContent(e.target.value)}
+                                              className="flex-1 bg-transparent border-b border-zinc-800 py-1 text-sm text-white focus:outline-none focus:border-sky-500"
+                                            />
+                                            <button 
+                                              onClick={() => handleAddComment(post.id, comment.id)}
+                                              disabled={!newCommentContent.trim()}
+                                              className="bg-sky-500 text-white px-3 py-1 rounded-full text-xs font-bold"
+                                            >
+                                              Reply
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </div>
                     )}
                   </div>
                 </div>
-                {editingPostId === post.id ? (
-                  <div className="space-y-3">
-                    <textarea
-                      value={editContent}
-                      onChange={(e) => setEditContent(e.target.value)}
-                      className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black transition-all resize-none"
-                      rows={3}
-                      autoFocus
-                    />
-                    <div className="flex justify-end gap-2">
-                      <button
-                        onClick={() => setEditingPostId(null)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
-                      >
-                        <X className="w-4 h-4" />
-                        Cancel
-                      </button>
-                      <button
-                        onClick={() => handleEdit(post.id)}
-                        disabled={isLoading || !editContent.trim()}
-                        className="flex items-center gap-1.5 bg-black text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-zinc-800 transition-colors disabled:opacity-50"
-                      >
-                        <Check className="w-4 h-4" />
-                        Save
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-zinc-700 leading-relaxed whitespace-pre-wrap">
-                    {post.content}
-                  </p>
-                )}
               </motion.div>
             ))}
           </AnimatePresence>
 
           {posts.length === 0 && (
             <div className="text-center py-20">
-              <p className="text-zinc-400">No posts yet. Be the first to share something!</p>
+              <p className="text-zinc-600 font-medium">No posts yet. Be the first to share something!</p>
             </div>
           )}
         </div>
