@@ -13,7 +13,6 @@ import {
   Check,
   Heart,
   Share2,
-  Image as ImageIcon,
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
@@ -29,7 +28,6 @@ interface Post {
   user_id: string;
   email: string;
   content: string;
-  image_url?: string;
   created_at: string;
   likes_count?: number;
   user_has_liked?: boolean;
@@ -62,8 +60,6 @@ export default function App() {
   const [editingPostId, setEditingPostId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [selectedImage, setSelectedImage] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [expandedPosts, setExpandedPosts] = useState<Record<number, boolean>>({});
   const [dbStatus, setDbStatus] = useState<'checking' | 'connected' | 'error'>('checking');
 
@@ -289,38 +285,17 @@ export default function App() {
 
   const handlePost = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!newPostContent.trim() && !selectedImage) || !userId) return;
+    if (!newPostContent.trim() || !userId) return;
 
     setIsLoading(true);
     setError(null);
     try {
-      let image_url = null;
-
-      if (selectedImage) {
-        const fileExt = selectedImage.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
-        const filePath = `${userId}/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('post-images')
-          .upload(filePath, selectedImage);
-
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('post-images')
-          .getPublicUrl(filePath);
-        
-        image_url = publicUrl;
-      }
-
       const { data, error } = await supabase
         .from('posts')
         .insert([{ 
           user_id: userId, 
           email: userEmail, 
-          content: newPostContent.trim(),
-          image_url
+          content: newPostContent.trim()
         }])
         .select()
         .single();
@@ -329,26 +304,12 @@ export default function App() {
       
       setPosts([data, ...posts]);
       setNewPostContent('');
-      setSelectedImage(null);
-      setImagePreview(null);
       fetchPosts();
     } catch (err: any) {
       console.error('Post error:', err);
       setError(err.message || 'Failed to create post');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setSelectedImage(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
     }
   };
 
@@ -563,38 +524,13 @@ export default function App() {
                   className="w-full min-h-[120px] py-2 bg-transparent text-xl text-white placeholder-zinc-600 focus:outline-none transition-all resize-none"
                 />
                 
-                {imagePreview && (
-                  <div className="relative mt-4 group">
-                    <img 
-                      src={imagePreview} 
-                      alt="Preview" 
-                      className="w-full h-auto max-h-[400px] object-cover rounded-2xl border border-zinc-800"
-                    />
-                    <button 
-                      type="button"
-                      onClick={() => { setSelectedImage(null); setImagePreview(null); }}
-                      className="absolute top-2 right-2 p-2 bg-black/50 text-white rounded-full hover:bg-black/70 transition-colors opacity-0 group-hover:opacity-100"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-
                 <div className="flex items-center justify-between pt-6 mt-4 border-t border-zinc-800/50">
                   <div className="flex items-center gap-2">
-                    <label className="p-3 text-zinc-400 hover:text-sky-400 hover:bg-sky-500/10 rounded-2xl transition-all cursor-pointer">
-                      <ImageIcon className="w-5 h-5" />
-                      <input 
-                        type="file" 
-                        className="hidden" 
-                        accept="image/*"
-                        onChange={handleImageChange}
-                      />
-                    </label>
+                    {/* Image upload removed */}
                   </div>
                   <button
                     type="submit"
-                    disabled={isLoading || (!newPostContent.trim() && !selectedImage)}
+                    disabled={isLoading || !newPostContent.trim()}
                     className="flex items-center gap-2 bg-white text-black px-8 py-2.5 rounded-2xl font-bold hover:bg-zinc-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] shadow-lg"
                   >
                     {isLoading ? 'Posting...' : 'Share'}
@@ -672,17 +608,6 @@ export default function App() {
                           <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-zinc-900 to-transparent pointer-events-none" />
                         )}
                       </div>
-
-                      {post.image_url && (
-                        <div className="rounded-[2rem] overflow-hidden border border-zinc-800 shadow-inner bg-black/20">
-                          <img 
-                            src={post.image_url} 
-                            alt="Post" 
-                            className="w-full h-auto object-cover max-h-[600px] hover:scale-[1.02] transition-transform duration-700" 
-                            referrerPolicy="no-referrer"
-                          />
-                        </div>
-                      )}
 
                       <div className="flex items-center justify-between pt-4">
                         <div className="flex items-center gap-6">
