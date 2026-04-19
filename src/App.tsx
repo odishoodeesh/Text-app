@@ -12,7 +12,10 @@ import {
   X, 
   Check,
   Heart,
-  Share2
+  Share2,
+  Image as ImageIcon,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createClient } from '@supabase/supabase-js';
@@ -26,6 +29,7 @@ interface Post {
   user_id: string;
   email: string;
   content: string;
+  image_url?: string;
   created_at: string;
   likes_count?: number;
   user_has_liked?: boolean;
@@ -58,6 +62,9 @@ export default function App() {
   const [editingPostId, setEditingPostId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [expandedPosts, setExpandedPosts] = useState<Record<number, boolean>>({});
   const [dbStatus, setDbStatus] = useState<'checking' | 'connected' | 'error'>('checking');
 
   useEffect(() => {
@@ -282,31 +289,71 @@ export default function App() {
 
   const handlePost = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPostContent.trim() || !userId) return;
+    if ((!newPostContent.trim() && !selectedImage) || !userId) return;
 
     setIsLoading(true);
     setError(null);
     try {
+      let image_url = null;
+
+      if (selectedImage) {
+        const fileExt = selectedImage.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `${userId}/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('post-images')
+          .upload(filePath, selectedImage);
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('post-images')
+          .getPublicUrl(filePath);
+        
+        image_url = publicUrl;
+      }
+
       const { data, error } = await supabase
         .from('posts')
         .insert([{ 
           user_id: userId, 
           email: userEmail, 
-          content: newPostContent.trim() 
+          content: newPostContent.trim(),
+          image_url
         }])
         .select()
         .single();
       
       if (error) throw error;
-
+      
+      setPosts([data, ...posts]);
       setNewPostContent('');
+      setSelectedImage(null);
+      setImagePreview(null);
       fetchPosts();
-    } catch (error: any) {
-      console.error('Post error:', error);
-      setError(`Database error: ${error.message}`);
+    } catch (err: any) {
+      console.error('Post error:', err);
+      setError(err.message || 'Failed to create post');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedImage(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const toggleExpand = (postId: number) => {
+    setExpandedPosts(prev => ({ ...prev, [postId]: !prev[postId] }));
   };
 
   const handleEdit = async (postId: number) => {
@@ -502,27 +549,55 @@ export default function App() {
         </AnimatePresence>
 
         {/* Post Form */}
-        <div className="bg-black border-b border-zinc-800 p-6 mb-4">
+        <div className="bg-zinc-900/50 backdrop-blur-xl border border-zinc-800 p-6 mb-8 rounded-[2rem] shadow-2xl">
           <form onSubmit={handlePost}>
             <div className="flex gap-4">
-              <div className="w-10 h-10 bg-zinc-800 rounded-full flex items-center justify-center shrink-0">
-                <User className="w-5 h-5 text-zinc-500" />
+              <div className="w-12 h-12 bg-zinc-800 rounded-2xl flex items-center justify-center shrink-0 border border-zinc-700">
+                <User className="w-6 h-6 text-zinc-500" />
               </div>
               <div className="flex-1">
                 <textarea
-                  placeholder="What's happening?!"
+                  placeholder="What's on your mind?!"
                   value={newPostContent}
                   onChange={(e) => setNewPostContent(e.target.value)}
-                  className="w-full min-h-[100px] py-2 bg-transparent text-xl text-white placeholder-zinc-500 focus:outline-none transition-all resize-none"
-                  required
+                  className="w-full min-h-[120px] py-2 bg-transparent text-xl text-white placeholder-zinc-600 focus:outline-none transition-all resize-none"
                 />
-                <div className="flex justify-end pt-4 border-t border-zinc-900">
+                
+                {imagePreview && (
+                  <div className="relative mt-4 group">
+                    <img 
+                      src={imagePreview} 
+                      alt="Preview" 
+                      className="w-full h-auto max-h-[400px] object-cover rounded-2xl border border-zinc-800"
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => { setSelectedImage(null); setImagePreview(null); }}
+                      className="absolute top-2 right-2 p-2 bg-black/50 text-white rounded-full hover:bg-black/70 transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-6 mt-4 border-t border-zinc-800/50">
+                  <div className="flex items-center gap-2">
+                    <label className="p-3 text-zinc-400 hover:text-sky-400 hover:bg-sky-500/10 rounded-2xl transition-all cursor-pointer">
+                      <ImageIcon className="w-5 h-5" />
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        accept="image/*"
+                        onChange={handleImageChange}
+                      />
+                    </label>
+                  </div>
                   <button
                     type="submit"
-                    disabled={isLoading || !newPostContent.trim()}
-                    className="flex items-center gap-2 bg-white text-black px-6 py-2 rounded-full font-bold hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+                    disabled={isLoading || (!newPostContent.trim() && !selectedImage)}
+                    className="flex items-center gap-2 bg-white text-black px-8 py-2.5 rounded-2xl font-bold hover:bg-zinc-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] shadow-lg"
                   >
-                    {isLoading ? 'Posting...' : 'Post'}
+                    {isLoading ? 'Posting...' : 'Share'}
                   </button>
                 </div>
               </div>
@@ -531,98 +606,97 @@ export default function App() {
         </div>
 
         {/* Posts List */}
-        <div className="divide-y divide-zinc-800">
+        <div className="grid grid-cols-1 gap-6">
           <AnimatePresence mode="popLayout">
-            {posts.map((post) => (
-              <motion.div
-                key={post.id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="p-6 hover:bg-zinc-900/30 transition-colors cursor-pointer"
-              >
-                <div className="flex gap-4">
-                  <div className="w-10 h-10 bg-zinc-800 rounded-full flex items-center justify-center shrink-0">
-                    <User className="w-5 h-5 text-zinc-500" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="font-bold text-white truncate">{post.email.split('@')[0]}</span>
-                        <span className="text-zinc-500 text-sm truncate">@{post.email.split('@')[0]}</span>
-                        <span className="text-zinc-500 text-sm">·</span>
-                        <span className="text-zinc-500 text-sm whitespace-nowrap">
-                          {new Date(post.created_at).toLocaleString([], { month: 'short', day: 'numeric' })}
-                        </span>
+            {posts.map((post) => {
+              const isExpanded = expandedPosts[post.id];
+              const hasLongContent = post.content.length > 280;
+              const shouldShowMore = hasLongContent && !isExpanded;
+
+              return (
+                <motion.div
+                  key={post.id}
+                  layout
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+                  className="bg-zinc-900/40 backdrop-blur-md border border-zinc-800/50 rounded-[2.5rem] overflow-hidden group hover:border-zinc-700/50 transition-all duration-500"
+                >
+                  <div className="p-8">
+                    <div className="flex gap-4 mb-6">
+                      <div className="w-12 h-12 bg-zinc-800 rounded-2xl flex items-center justify-center shrink-0 border border-zinc-700">
+                        <User className="w-6 h-6 text-zinc-500" />
                       </div>
-                      {userId === post.user_id && (
-                        <div className="flex items-center gap-1">
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingPostId(post.id);
-                              setEditContent(post.content);
-                            }}
-                            className="p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-full transition-all"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDelete(post.id);
-                            }}
-                            className="p-2 text-zinc-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-all"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <div className="flex flex-col">
+                            <span className="font-bold text-white text-lg tracking-tight">{post.email.split('@')[0]}</span>
+                            <span className="text-zinc-500 text-xs">
+                              {new Date(post.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          {userId === post.user_id && (
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingPostId(post.id);
+                                  setEditContent(post.content);
+                                }}
+                                className="p-2.5 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-2xl transition-all"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(post.id);
+                                }}
+                                className="p-2.5 text-zinc-500 hover:text-red-500 hover:bg-red-500/10 rounded-2xl transition-all"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
 
-                    {editingPostId === post.id ? (
-                      <div className="space-y-3 mt-2">
-                        <textarea
-                          value={editContent}
-                          onChange={(e) => setEditContent(e.target.value)}
-                          className="w-full p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-white/10 transition-all resize-none"
-                          rows={3}
-                          autoFocus
-                        />
-                        <div className="flex justify-end gap-2">
-                          <button
-                            onClick={() => setEditingPostId(null)}
-                            className="px-4 py-1.5 text-sm font-bold text-zinc-500 hover:text-white transition-colors"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={() => handleEdit(post.id)}
-                            disabled={isLoading || !editContent.trim()}
-                            className="bg-white text-black px-4 py-1.5 rounded-full text-sm font-bold hover:bg-zinc-200 transition-colors disabled:opacity-50"
-                          >
-                            Save
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-4">
-                        <p className="text-zinc-200 leading-relaxed whitespace-pre-wrap text-[15px]">
+                    <div className="space-y-6">
+                      <div className={`relative ${shouldShowMore ? 'max-h-40 overflow-hidden' : ''}`}>
+                        <p className="text-zinc-200 leading-relaxed whitespace-pre-wrap text-[17px] font-medium">
                           {post.content}
                         </p>
-                        
-                        <div className="flex items-center justify-between max-w-md pt-2">
+                        {shouldShowMore && (
+                          <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-zinc-900 to-transparent pointer-events-none" />
+                        )}
+                      </div>
+
+                      {post.image_url && (
+                        <div className="rounded-[2rem] overflow-hidden border border-zinc-800 shadow-inner bg-black/20">
+                          <img 
+                            src={post.image_url} 
+                            alt="Post" 
+                            className="w-full h-auto object-cover max-h-[600px] hover:scale-[1.02] transition-transform duration-700" 
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between pt-4">
+                        <div className="flex items-center gap-6">
                           <button 
                             onClick={(e) => {
                               e.stopPropagation();
                               handleToggleLike(post.id, !!post.user_has_liked);
                             }}
-                            className={`flex items-center gap-2 text-sm transition-colors group ${post.user_has_liked ? 'text-pink-500' : 'text-zinc-500 hover:text-pink-500'}`}
+                            className={`flex items-center gap-2 text-sm transition-all group ${post.user_has_liked ? 'text-pink-500' : 'text-zinc-500 hover:text-pink-500'}`}
                           >
-                            <div className={`p-2 rounded-full group-hover:bg-pink-500/10 transition-colors`}>
-                              <Heart className={`w-4 h-4 ${post.user_has_liked ? 'fill-current' : ''}`} />
+                            <div className={`p-3 rounded-2xl transition-colors ${post.user_has_liked ? 'bg-pink-500/10' : 'bg-white/5 group-hover:bg-pink-500/10'}`}>
+                              <Heart className={`w-5 h-5 ${post.user_has_liked ? 'fill-current' : ''}`} />
                             </div>
-                            <span className="font-medium">{post.likes_count || 0}</span>
+                            <span className="font-bold text-base">{post.likes_count || 0}</span>
                           </button>
 
                           <button 
@@ -630,129 +704,140 @@ export default function App() {
                               e.stopPropagation();
                               if (activeCommentPostId === post.id) {
                                 setActiveCommentPostId(null);
+                                if (!hasLongContent) toggleExpand(post.id);
                               } else {
                                 setActiveCommentPostId(post.id);
                                 fetchComments(post.id);
+                                if (!isExpanded) toggleExpand(post.id);
                               }
                             }}
-                            className="flex items-center gap-2 text-sm transition-colors group text-zinc-500 hover:text-sky-500"
+                            className={`flex items-center gap-2 text-sm transition-all group ${activeCommentPostId === post.id ? 'text-sky-500' : 'text-zinc-500 hover:text-sky-500'}`}
                           >
-                            <div className="p-2 rounded-full group-hover:bg-sky-500/10 transition-colors">
-                              <MessageSquare className="w-4 h-4" />
+                            <div className={`p-3 rounded-2xl transition-colors ${activeCommentPostId === post.id ? 'bg-sky-500/10' : 'bg-white/5 group-hover:bg-sky-500/10'}`}>
+                              <MessageSquare className="w-5 h-5" />
                             </div>
-                            <span className="font-medium">Comment</span>
-                          </button>
-
-                          <button className="p-2 text-zinc-500 hover:text-sky-500 hover:bg-sky-500/10 rounded-full transition-colors">
-                            <Share2 className="w-4 h-4" />
+                            <span className="font-bold text-base">Comments</span>
                           </button>
                         </div>
 
-                        {/* Comments Section */}
-                        <AnimatePresence>
-                          {activeCommentPostId === post.id && (
-                            <motion.div 
-                              initial={{ opacity: 0, height: 0 }}
-                              animate={{ opacity: 1, height: 'auto' }}
-                              exit={{ opacity: 0, height: 0 }}
-                              className="space-y-4 pt-4 overflow-hidden"
-                            >
-                              <div className="flex gap-3">
-                                <div className="w-8 h-8 bg-zinc-800 rounded-full flex items-center justify-center shrink-0">
-                                  <User className="w-4 h-4 text-zinc-500" />
-                                </div>
-                                <div className="flex-1 flex gap-2">
-                                  <input 
-                                    type="text"
-                                    placeholder="Post your reply"
-                                    value={newCommentContent}
-                                    onChange={(e) => setNewCommentContent(e.target.value)}
-                                    className="flex-1 bg-transparent border-b border-zinc-800 py-1 text-sm text-white focus:outline-none focus:border-sky-500 transition-colors"
-                                  />
-                                  <button 
-                                    onClick={() => handleAddComment(post.id)}
-                                    disabled={!newCommentContent.trim()}
-                                    className="bg-sky-500 text-white px-4 py-1 rounded-full text-sm font-bold hover:bg-sky-600 disabled:opacity-50"
-                                  >
-                                    Reply
-                                  </button>
-                                </div>
+                        {(hasLongContent || activeCommentPostId === post.id) && (
+                          <button 
+                            onClick={() => toggleExpand(post.id)}
+                            className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white rounded-2xl transition-all text-sm font-bold"
+                          >
+                            {isExpanded ? (
+                              <><ChevronUp className="w-4 h-4" /> Less</>
+                            ) : (
+                              <><ChevronDown className="w-4 h-4" /> More</>
+                            )}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Comments Section */}
+                      <AnimatePresence>
+                        {isExpanded && activeCommentPostId === post.id && (
+                          <motion.div 
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="space-y-6 pt-8 border-t border-zinc-800/50 mt-4 overflow-hidden"
+                          >
+                            <div className="flex gap-4">
+                              <div className="w-10 h-10 bg-zinc-800 rounded-xl flex items-center justify-center shrink-0 border border-zinc-700">
+                                <User className="w-5 h-5 text-zinc-500" />
                               </div>
+                              <div className="flex-1 flex gap-3">
+                                <input 
+                                  type="text"
+                                  placeholder="Post your reply"
+                                  value={newCommentContent}
+                                  onChange={(e) => setNewCommentContent(e.target.value)}
+                                  className="flex-1 bg-zinc-950/50 border border-zinc-800/50 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-sky-500 transition-all placeholder:text-zinc-700"
+                                />
+                                <button 
+                                  onClick={() => handleAddComment(post.id)}
+                                  disabled={!newCommentContent.trim()}
+                                  className="bg-sky-500 text-white px-6 py-2 rounded-xl text-sm font-bold hover:bg-sky-600 disabled:opacity-50 transition-colors shadow-lg shadow-sky-500/20"
+                                >
+                                  Reply
+                                </button>
+                              </div>
+                            </div>
 
-                              <div className="space-y-6 ml-11">
-                                {(comments[post.id] || [])
-                                  .filter(c => !c.parent_id)
-                                  .map(comment => (
-                                    <div key={comment.id} className="space-y-2">
-                                      <div className="flex gap-3">
-                                        <div className="w-8 h-8 bg-zinc-800 rounded-full flex items-center justify-center shrink-0">
-                                          <User className="w-4 h-4 text-zinc-500" />
-                                        </div>
-                                        <div className="flex-1">
-                                          <div className="flex items-center gap-2 mb-1">
-                                            <span className="text-sm font-bold text-white">{comment.user_email.split('@')[0]}</span>
-                                            <span className="text-zinc-500 text-xs">· {new Date(comment.created_at).toLocaleDateString()}</span>
-                                          </div>
-                                          <p className="text-[15px] text-zinc-200">{comment.content}</p>
-                                          <button 
-                                            onClick={() => setReplyingToId(replyingToId === comment.id ? null : comment.id)}
-                                            className="text-xs font-bold text-zinc-500 hover:text-sky-500 mt-2"
-                                          >
-                                            Reply
-                                          </button>
-                                        </div>
+                            <div className="space-y-8 pl-4">
+                              {(comments[post.id] || [])
+                                .filter(c => !c.parent_id)
+                                .map(comment => (
+                                  <div key={comment.id} className="space-y-4">
+                                    <div className="flex gap-4">
+                                      <div className="w-10 h-10 bg-zinc-900 rounded-xl flex items-center justify-center shrink-0 border border-zinc-800">
+                                        <User className="w-5 h-5 text-zinc-600" />
                                       </div>
-
-                                      {/* Replies */}
-                                      <div className="ml-11 space-y-4">
-                                        {(comments[post.id] || [])
-                                          .filter(r => r.parent_id === comment.id)
-                                          .map(reply => (
-                                            <div key={reply.id} className="flex gap-3">
-                                              <div className="w-6 h-6 bg-zinc-800 rounded-full flex items-center justify-center shrink-0">
-                                                <User className="w-3 h-3 text-zinc-500" />
-                                              </div>
-                                              <div>
-                                                <div className="flex items-center gap-2 mb-0.5">
-                                                  <span className="text-sm font-bold text-white">{reply.user_email.split('@')[0]}</span>
-                                                </div>
-                                                <p className="text-sm text-zinc-300">{reply.content}</p>
-                                              </div>
-                                            </div>
-                                          ))}
-                                        
-                                        {replyingToId === comment.id && (
-                                          <div className="flex gap-2 pt-2">
-                                            <input 
-                                              autoFocus
-                                              type="text"
-                                              placeholder="Post your reply"
-                                              value={newCommentContent}
-                                              onChange={(e) => setNewCommentContent(e.target.value)}
-                                              className="flex-1 bg-transparent border-b border-zinc-800 py-1 text-sm text-white focus:outline-none focus:border-sky-500"
-                                            />
-                                            <button 
-                                              onClick={() => handleAddComment(post.id, comment.id)}
-                                              disabled={!newCommentContent.trim()}
-                                              className="bg-sky-500 text-white px-3 py-1 rounded-full text-xs font-bold"
-                                            >
-                                              Reply
-                                            </button>
-                                          </div>
-                                        )}
+                                      <div className="flex-1">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <span className="text-sm font-bold text-white">{comment.user_email?.split('@')[0]}</span>
+                                          <span className="text-zinc-600 text-xs font-medium">· {new Date(comment.created_at).toLocaleDateString()}</span>
+                                        </div>
+                                        <p className="text-[15px] text-zinc-300 leading-relaxed">{comment.content}</p>
+                                        <button 
+                                          onClick={() => setReplyingToId(replyingToId === comment.id ? null : comment.id)}
+                                          className="text-xs font-bold text-zinc-500 hover:text-sky-500 mt-3 transition-colors uppercase tracking-wider"
+                                        >
+                                          Reply
+                                        </button>
                                       </div>
                                     </div>
-                                  ))}
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    )}
+
+                                    {/* Replies */}
+                                    <div className="ml-14 space-y-6 border-l border-zinc-800/50 pl-6">
+                                      {(comments[post.id] || [])
+                                        .filter(r => r.parent_id === comment.id)
+                                        .map(reply => (
+                                          <div key={reply.id} className="flex gap-3">
+                                            <div className="w-8 h-8 bg-zinc-900/50 rounded-lg flex items-center justify-center shrink-0 border border-zinc-800/50">
+                                              <User className="w-4 h-4 text-zinc-700" />
+                                            </div>
+                                            <div>
+                                              <div className="flex items-center gap-2 mb-1">
+                                                <span className="text-sm font-bold text-zinc-200">{reply.user_email?.split('@')[0]}</span>
+                                              </div>
+                                              <p className="text-sm text-zinc-400 leading-relaxed">{reply.content}</p>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      
+                                      {replyingToId === comment.id && (
+                                        <div className="flex gap-3 pt-2">
+                                          <input 
+                                            autoFocus
+                                            type="text"
+                                            placeholder="Write a reply..."
+                                            value={newCommentContent}
+                                            onChange={(e) => setNewCommentContent(e.target.value)}
+                                            className="flex-1 bg-zinc-950/30 border border-zinc-800/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
+                                          />
+                                          <button 
+                                            onClick={() => handleAddComment(post.id, comment.id)}
+                                            disabled={!newCommentContent.trim()}
+                                            className="bg-sky-500/10 text-sky-400 px-4 py-2 rounded-lg text-xs font-bold hover:bg-sky-500/20 transition-all border border-sky-500/20"
+                                          >
+                                            Post
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
                   </div>
-                </div>
-              </motion.div>
-            ))}
+                </motion.div>
+              );
+            })}
           </AnimatePresence>
 
           {posts.length === 0 && (
