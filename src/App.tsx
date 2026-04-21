@@ -14,10 +14,16 @@ import {
   Heart,
   Share2,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Mail,
+  Users,
+  Settings,
+  MoreVertical,
+  Plus,
+  ArrowLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL || "https://xwmdotzhgerirsydgbnc.supabase.co";
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3bWRvdHpoZ2VyaXJzeWRnYm5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNDc5MzIsImV4cCI6MjA4NzYyMzkzMn0.qFulksccdbSPx4marSQ3euFbfO1TqaosEO2rumwndjc";
@@ -31,6 +37,30 @@ interface Post {
   created_at: string;
   likes_count?: number;
   user_has_liked?: boolean;
+  profiles?: Profile;
+}
+
+interface Profile {
+  id: string;
+  username: string;
+  full_name?: string;
+  avatar_url?: string;
+  bio?: string;
+  created_at: string;
+}
+
+interface Follow {
+  follower_id: string;
+  following_id: string;
+}
+
+interface Message {
+  id: number;
+  sender_id: string;
+  receiver_id: string;
+  content: string;
+  created_at: string;
+  is_read: boolean;
 }
 
 interface Comment {
@@ -62,6 +92,18 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [expandedPosts, setExpandedPosts] = useState<Record<number, boolean>>({});
   const [dbStatus, setDbStatus] = useState<'checking' | 'connected' | 'error'>('checking');
+  
+  // New State for Social Features
+  const [activeTab, setActiveTab] = useState<'feed' | 'messages' | 'profile'>('feed');
+  const [myProfile, setMyProfile] = useState<Profile | null>(null);
+  const [followers, setFollowers] = useState<string[]>([]);
+  const [following, setFollowing] = useState<string[]>([]);
+  const [allProfiles, setAllProfiles] = useState<Profile[]>([]);
+  const [selectedChatUserId, setSelectedChatUserId] = useState<string | null>(null);
+  const [directMessages, setDirectMessages] = useState<Message[]>([]);
+  const [newMessageText, setNewMessageText] = useState('');
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editProfileData, setEditProfileData] = useState({ username: '', bio: '', avatar_url: '', full_name: '' });
 
   useEffect(() => {
     // Check connection to backend
@@ -112,17 +154,170 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (userEmail) {
+    if (userEmail && userId) {
       fetchPosts();
+      fetchProfileData();
+      fetchAllProfiles();
+      setupRealtimeMessages();
     }
-  }, [userEmail]);
+  }, [userEmail, userId]);
+
+  useEffect(() => {
+    if (selectedChatUserId) {
+      fetchDirectMessages(selectedChatUserId);
+    }
+  }, [selectedChatUserId]);
+
+  const fetchProfileData = async () => {
+    if (!userId) return;
+    try {
+      const { data: profile, error: pError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (profile) {
+        setMyProfile(profile);
+        setEditProfileData({
+          username: profile.username || '',
+          bio: profile.bio || '',
+          avatar_url: profile.avatar_url || '',
+          full_name: profile.full_name || ''
+        });
+      }
+
+      // Fetch Follows
+      const { data: followsData } = await supabase
+        .from('follows')
+        .select('*')
+        .or(`follower_id.eq.${userId},following_id.eq.${userId}`);
+
+      if (followsData) {
+        setFollowers(followsData.filter(f => f.following_id === userId).map(f => f.follower_id));
+        setFollowing(followsData.filter(f => f.follower_id === userId).map(f => f.following_id));
+      }
+    } catch (err) {
+      console.error('Profile fetch error:', err);
+    }
+  };
+
+  const fetchAllProfiles = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .limit(50);
+      if (error) throw error;
+      setAllProfiles(data || []);
+    } catch (err) {
+      console.error('All profiles fetch error:', err);
+    }
+  };
+
+  const fetchDirectMessages = async (otherUserId: string) => {
+    if (!userId) return;
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .or(`and(sender_id.eq.${userId},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${userId})`)
+        .order('created_at', { ascending: true });
+      
+      if (error) throw error;
+      setDirectMessages(data || []);
+    } catch (err) {
+      console.error('Messages fetch error:', err);
+    }
+  };
+
+  const setupRealtimeMessages = () => {
+    if (!userId) return;
+    
+    supabase
+      .channel('dm-updates')
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'messages',
+        filter: `receiver_id=eq.${userId}` 
+      }, (payload) => {
+        const newMessage = payload.new as Message;
+        if (selectedChatUserId === newMessage.sender_id) {
+          setDirectMessages(prev => [...prev.filter(m => m.id !== newMessage.id), newMessage]);
+        }
+      })
+      .subscribe();
+  };
+
+  const handleFollow = async (targetUserId: string) => {
+    if (!userId) return;
+    const isFollowing = following.includes(targetUserId);
+    try {
+      if (isFollowing) {
+        await supabase.from('follows').delete().eq('follower_id', userId).eq('following_id', targetUserId);
+        setFollowing(prev => prev.filter(id => id !== targetUserId));
+      } else {
+        await supabase.from('follows').insert([{ follower_id: userId, following_id: targetUserId }]);
+        setFollowing(prev => [...prev, targetUserId]);
+      }
+    } catch (err) {
+      console.error('Follow error:', err);
+    }
+  };
+
+  const handleUpdateProfile = async () => {
+    if (!userId) return;
+    setIsLoading(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          username: editProfileData.username,
+          bio: editProfileData.bio,
+          avatar_url: editProfileData.avatar_url,
+          full_name: editProfileData.full_name,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+
+      if (error) throw error;
+      await fetchProfileData();
+      setIsEditingProfile(false);
+    } catch (err: any) {
+      setError(`Profile update failed: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!userId || !selectedChatUserId || !newMessageText.trim()) return;
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .insert([{
+          sender_id: userId,
+          receiver_id: selectedChatUserId,
+          content: newMessageText.trim()
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      setDirectMessages(prev => [...prev, data]);
+      setNewMessageText('');
+    } catch (err) {
+      console.error('Message send error:', err);
+    }
+  };
 
   const fetchPosts = async () => {
     try {
-      // Fetch posts
+      // Fetch posts with profiles
       const { data: postsData, error: postsError } = await supabase
         .from('posts')
-        .select('*')
+        .select('*, profiles:user_id(*)')
         .order('created_at', { ascending: false });
       
       if (postsError) throw postsError;
@@ -154,7 +349,7 @@ export default function App() {
         .from('comments')
         .select(`
           *,
-          users (email)
+          profiles:user_id(username, avatar_url)
         `)
         .eq('post_id', postId)
         .order('created_at', { ascending: true });
@@ -163,7 +358,7 @@ export default function App() {
 
       const formattedComments = (data || []).map(c => ({
         ...c,
-        user_email: (c.users as any)?.email || 'Unknown'
+        user_email: (c.profiles as any)?.username || 'Unknown'
       }));
 
       setComments(prev => ({ ...prev, [postId]: formattedComments }));
@@ -468,20 +663,40 @@ export default function App() {
   return (
     <div className="min-h-screen bg-black font-sans pb-20 text-white">
       {/* Header */}
-      <header className="sticky top-0 z-10 bg-black/80 backdrop-blur-md border-b border-zinc-800">
+      <header className="sticky top-0 z-20 bg-black/80 backdrop-blur-md border-b border-zinc-800">
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 cursor-pointer" onClick={() => setActiveTab('feed')}>
               <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center">
                 <MessageSquare className="text-black w-4 h-4" />
               </div>
-              <span className="font-bold text-xl tracking-tight">TextPost</span>
-              <div className={`ml-2 w-2 h-2 rounded-full ${dbStatus === 'connected' ? 'bg-emerald-500' : dbStatus === 'error' ? 'bg-red-500' : 'bg-amber-500 animate-pulse'}`} title={dbStatus === 'connected' ? 'Server Connected' : 'Server Connection Error'} />
+              <span className="font-bold text-xl tracking-tight hidden sm:inline">TextPost</span>
             </div>
-          <div className="flex items-center gap-4">
-            <div className="hidden sm:flex items-center gap-2 px-4 py-1.5 bg-zinc-900 rounded-full border border-zinc-800">
-              <User className="w-4 h-4 text-zinc-500" />
-              <span className="text-sm font-medium text-zinc-300">{userEmail}</span>
-            </div>
+          
+          <nav className="flex items-center gap-1">
+            <button 
+              onClick={() => setActiveTab('feed')}
+              className={`p-2 sm:px-4 flex items-center gap-2 rounded-xl transition-all ${activeTab === 'feed' ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              <Heart className={`w-5 h-5 ${activeTab === 'feed' ? 'fill-current' : ''}`} />
+              <span className="hidden sm:inline font-bold">Feed</span>
+            </button>
+            <button 
+              onClick={() => setActiveTab('messages')}
+              className={`p-2 sm:px-4 flex items-center gap-2 rounded-xl transition-all ${activeTab === 'messages' ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              <Mail className={`w-5 h-5 ${activeTab === 'messages' ? 'fill-current' : ''}`} />
+              <span className="hidden sm:inline font-bold">Messages</span>
+            </button>
+            <button 
+              onClick={() => setActiveTab('profile')}
+              className={`p-2 sm:px-4 flex items-center gap-2 rounded-xl transition-all ${activeTab === 'profile' ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              <User className={`w-5 h-5 ${activeTab === 'profile' ? 'fill-current' : ''}`} />
+              <span className="hidden sm:inline font-bold">Profile</span>
+            </button>
+          </nav>
+
+          <div className="flex items-center gap-2">
             <button 
               onClick={handleLogout}
               className="p-2 text-zinc-500 hover:text-white transition-colors"
@@ -493,284 +708,408 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-4 py-8">
-        {/* Error Display */}
-        <AnimatePresence>
-          {error && (
+      <main className="max-w-2xl mx-auto px-4 py-8 pb-32">
+        <AnimatePresence mode="wait">
+          {activeTab === 'feed' && (
             <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="mb-4 p-4 bg-red-500/10 text-red-400 rounded-xl text-sm border border-red-500/20 flex items-center justify-between"
+              key="feed"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
             >
-              <span>{error}</span>
-              <button onClick={() => setError(null)} className="text-red-400/50 hover:text-red-400 transition-colors">✕</button>
+              {/* Error Display */}
+              {error && (
+                <div className="mb-4 p-4 bg-red-500/10 text-red-400 rounded-xl text-sm border border-red-500/20 flex items-center justify-between">
+                  <span>{error}</span>
+                  <button onClick={() => setError(null)} className="text-red-400/50 hover:text-red-400">✕</button>
+                </div>
+              )}
+
+              {/* Post Form */}
+              <div className="bg-zinc-900/50 backdrop-blur-xl border border-zinc-800 p-6 mb-8 rounded-[2rem] shadow-2xl">
+                <form onSubmit={handlePost}>
+                  <div className="flex gap-4">
+                    <div className="w-12 h-12 bg-zinc-800 rounded-2xl flex items-center justify-center shrink-0 border border-zinc-700 overflow-hidden">
+                      {myProfile?.avatar_url ? (
+                        <img src={myProfile.avatar_url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <User className="w-6 h-6 text-zinc-500" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <textarea
+                        placeholder="What's on your mind?!"
+                        value={newPostContent}
+                        onChange={(e) => setNewPostContent(e.target.value)}
+                        className="w-full min-h-[120px] py-2 bg-transparent text-xl text-white placeholder-zinc-600 focus:outline-none transition-all resize-none"
+                      />
+                      <div className="flex items-center justify-between pt-6 mt-4 border-t border-zinc-800/50">
+                        <div />
+                        <button
+                          type="submit"
+                          disabled={isLoading || !newPostContent.trim()}
+                          className="flex items-center gap-2 bg-white text-black px-8 py-2.5 rounded-2xl font-bold hover:bg-zinc-200 transition-all disabled:opacity-50 shadow-lg"
+                        >
+                          {isLoading ? 'Posting...' : 'Share'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </form>
+              </div>
+
+              {/* Posts List */}
+              <div className="grid grid-cols-1 gap-6">
+                {posts.map((post) => {
+                  const isExpanded = expandedPosts[post.id];
+                  const hasLongContent = post.content.length > 280;
+                  const shouldShowMore = hasLongContent && !isExpanded;
+                  const postProfile = post.profiles as any;
+
+                  return (
+                    <motion.div
+                      key={post.id}
+                      layout
+                      className="bg-zinc-900/40 backdrop-blur-md border border-zinc-800/50 rounded-[2.5rem] overflow-hidden group hover:border-zinc-700/50 transition-all duration-500"
+                    >
+                      <div className="p-8">
+                        <div className="flex gap-4 mb-6">
+                          <div className="w-12 h-12 bg-zinc-800 rounded-2xl flex items-center justify-center shrink-0 border border-zinc-700 overflow-hidden">
+                            {postProfile?.avatar_url ? (
+                              <img src={postProfile.avatar_url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <User className="w-6 h-6 text-zinc-500" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <div className="flex flex-col">
+                                <span className="font-bold text-white text-lg tracking-tight hover:underline cursor-pointer">
+                                  {postProfile?.username || post.email.split('@')[0]}
+                                </span>
+                                <span className="text-zinc-500 text-xs">
+                                  {new Date(post.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {userId !== post.user_id && (
+                                  <button 
+                                    onClick={() => handleFollow(post.user_id)}
+                                    className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${following.includes(post.user_id) ? 'bg-zinc-800 text-zinc-400 border border-zinc-700' : 'bg-white text-black hover:bg-zinc-200'}`}
+                                  >
+                                    {following.includes(post.user_id) ? 'Following' : 'Follow'}
+                                  </button>
+                                )}
+                                {userId === post.user_id && (
+                                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={() => { setEditingPostId(post.id); setEditContent(post.content); }} className="p-2.5 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-2xl">
+                                      <Edit2 className="w-4 h-4" />
+                                    </button>
+                                    <button onClick={() => handleDelete(post.id)} className="p-2.5 text-zinc-500 hover:text-red-500 hover:bg-red-500/10 rounded-2xl">
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-6">
+                          <div className={`relative ${shouldShowMore ? 'max-h-40 overflow-hidden' : ''}`}>
+                            <p className="text-zinc-200 leading-relaxed whitespace-pre-wrap text-[17px] font-medium">
+                              {post.content}
+                            </p>
+                            {shouldShowMore && <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-zinc-900 to-transparent pointer-events-none" />}
+                          </div>
+
+                          <div className="flex items-center justify-between pt-4">
+                            <div className="flex items-center gap-6">
+                              <button 
+                                onClick={() => handleToggleLike(post.id, !!post.user_has_liked)}
+                                className={`flex items-center gap-2 text-sm transition-all group ${post.user_has_liked ? 'text-pink-500' : 'text-zinc-500 hover:text-pink-500'}`}
+                              >
+                                <div className={`p-3 rounded-2xl transition-colors ${post.user_has_liked ? 'bg-pink-500/10' : 'bg-white/5 group-hover:bg-pink-500/10'}`}>
+                                  <Heart className={`w-5 h-5 ${post.user_has_liked ? 'fill-current' : ''}`} />
+                                </div>
+                                <span className="font-bold text-base">{post.likes_count || 0}</span>
+                              </button>
+
+                              <button 
+                                onClick={() => {
+                                  if (activeCommentPostId === post.id) {
+                                    setActiveCommentPostId(null);
+                                    if (!hasLongContent) toggleExpand(post.id);
+                                  } else {
+                                    setActiveCommentPostId(post.id);
+                                    fetchComments(post.id);
+                                    if (!isExpanded) toggleExpand(post.id);
+                                  }
+                                }}
+                                className={`flex items-center gap-2 text-sm transition-all group ${activeCommentPostId === post.id ? 'text-sky-500' : 'text-zinc-500 hover:text-sky-500'}`}
+                              >
+                                <div className={`p-3 rounded-2xl transition-colors ${activeCommentPostId === post.id ? 'bg-sky-500/10' : 'bg-white/5 group-hover:bg-sky-500/10'}`}>
+                                  <MessageSquare className="w-5 h-5" />
+                                </div>
+                                <span className="font-bold text-base">Comments</span>
+                              </button>
+                            </div>
+
+                            {(hasLongContent || activeCommentPostId === post.id) && (
+                              <button onClick={() => toggleExpand(post.id)} className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white rounded-2xl transition-all text-sm font-bold">
+                                {isExpanded ? <><ChevronUp className="w-4 h-4" /> Less</> : <><ChevronDown className="w-4 h-4" /> More</>}
+                              </button>
+                            )}
+                          </div>
+
+                          <AnimatePresence>
+                            {isExpanded && activeCommentPostId === post.id && (
+                              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-6 pt-8 border-t border-zinc-800/50 mt-4 overflow-hidden">
+                                <div className="flex gap-4">
+                                  <div className="w-10 h-10 bg-zinc-800 rounded-xl items-center justify-center shrink-0 border border-zinc-700 hidden sm:flex">
+                                    <User className="w-5 h-5 text-zinc-500" />
+                                  </div>
+                                  <div className="flex-1 flex gap-3">
+                                    <input type="text" placeholder="Post your reply" value={newCommentContent} onChange={(e) => setNewCommentContent(e.target.value)} className="flex-1 bg-zinc-950/50 border border-zinc-800/50 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-sky-500" />
+                                    <button onClick={() => handleAddComment(post.id)} disabled={!newCommentContent.trim()} className="bg-sky-500 text-white px-6 py-2 rounded-xl text-sm font-bold hover:bg-sky-600 disabled:opacity-50">Reply</button>
+                                  </div>
+                                </div>
+                                <div className="space-y-8 pl-4">
+                                  {(comments[post.id] || []).filter(c => !c.parent_id).map(comment => (
+                                    <div key={comment.id} className="space-y-4">
+                                      <div className="flex gap-4">
+                                        <div className="w-10 h-10 bg-zinc-900 rounded-xl flex items-center justify-center shrink-0 border border-zinc-800">
+                                          <User className="w-5 h-5 text-zinc-600" />
+                                        </div>
+                                        <div className="flex-1">
+                                          <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-sm font-bold text-white">{comment.user_email?.split('@')[0]}</span>
+                                            <span className="text-zinc-600 text-xs font-medium">· {new Date(comment.created_at).toLocaleDateString()}</span>
+                                          </div>
+                                          <p className="text-[15px] text-zinc-300 leading-relaxed">{comment.content}</p>
+                                          <button onClick={() => setReplyingToId(replyingToId === comment.id ? null : comment.id)} className="text-xs font-bold text-zinc-500 hover:text-sky-500 mt-3 uppercase tracking-wider">Reply</button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'messages' && (
+            <motion.div
+              key="messages"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="grid grid-cols-1 md:grid-cols-[300px,1fr] gap-6 bg-zinc-900/40 backdrop-blur-md border border-zinc-800/50 rounded-[2.5rem] overflow-hidden min-h-[600px]"
+            >
+              {/* Sidebar: Chat List */}
+              <div className={`border-r border-zinc-800/50 p-6 flex flex-col h-full ${selectedChatUserId ? 'hidden md:flex' : 'flex'}`}>
+                <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                  <Mail className="w-5 h-5" /> Messages
+                </h2>
+                <div className="space-y-2 overflow-y-auto flex-1">
+                  {allProfiles.filter(p => userId !== p.id && following.includes(p.id)).map(profile => (
+                    <button
+                      key={profile.id}
+                      onClick={() => setSelectedChatUserId(profile.id)}
+                      className={`w-full flex items-center gap-3 p-3 rounded-2xl transition-all ${selectedChatUserId === profile.id ? 'bg-white/10 text-white' : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'}`}
+                    >
+                      <div className="w-10 h-10 bg-zinc-800 rounded-xl flex items-center justify-center shrink-0 border border-zinc-700 overflow-hidden">
+                        {profile.avatar_url ? (
+                          <img src={profile.avatar_url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          <User className="w-5 h-5 text-zinc-500" />
+                        )}
+                      </div>
+                      <div className="flex-1 text-left min-w-0">
+                        <div className="font-bold truncate">{profile.username || 'Anonymous'}</div>
+                        <div className="text-xs opacity-50 truncate">Click to message</div>
+                      </div>
+                    </button>
+                  ))}
+                  {following.length === 0 && (
+                    <div className="text-center py-10 text-zinc-600 text-sm">
+                      Follow people to start chatting
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Chat View */}
+              <div className={`flex flex-col h-full ${selectedChatUserId ? 'flex' : 'hidden md:flex'}`}>
+                {selectedChatUserId ? (
+                  <>
+                    <div className="p-6 border-b border-zinc-800/50 flex items-center gap-4">
+                      <button onClick={() => setSelectedChatUserId(null)} className="md:hidden p-2 text-zinc-500 hover:text-white">
+                        <ArrowLeft className="w-5 h-5" />
+                      </button>
+                      <div className="w-10 h-10 bg-zinc-800 rounded-xl flex items-center justify-center overflow-hidden">
+                        {allProfiles.find(p => p.id === selectedChatUserId)?.avatar_url ? (
+                          <img src={allProfiles.find(p => p.id === selectedChatUserId)?.avatar_url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          <User className="w-5 h-5 text-zinc-500" />
+                        )}
+                      </div>
+                      <div className="font-bold text-lg">
+                        {allProfiles.find(p => p.id === selectedChatUserId)?.username || 'Chat'}
+                      </div>
+                    </div>
+                    <div className="flex-1 p-6 space-y-4 overflow-y-auto">
+                      {directMessages.map(msg => (
+                        <div key={msg.id} className={`flex ${msg.sender_id === userId ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[80%] p-4 rounded-[1.5rem] text-[15px] leading-relaxed ${msg.sender_id === userId ? 'bg-white text-black font-medium rounded-tr-none' : 'bg-zinc-800 text-white rounded-tl-none border border-zinc-700'}`}>
+                            {msg.content}
+                            <div className="text-[10px] mt-1 opacity-50 text-right">
+                              {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="p-6 border-t border-zinc-800/50 flex gap-3">
+                      <input 
+                        type="text" 
+                        placeholder="Start a message" 
+                        value={newMessageText}
+                        onChange={(e) => setNewMessageText(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                        className="flex-1 bg-zinc-950/50 border border-zinc-800/50 rounded-2xl px-6 py-3 text-sm focus:outline-none focus:border-white/20"
+                      />
+                      <button 
+                        onClick={handleSendMessage}
+                        disabled={!newMessageText.trim()}
+                        className="p-3 bg-white text-black rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-50"
+                      >
+                        <Send className="w-6 h-6" />
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center p-10 text-center space-y-4">
+                    <div className="w-20 h-20 bg-zinc-900 rounded-[2.5rem] flex items-center justify-center border border-zinc-800">
+                      <Mail className="w-10 h-10 text-zinc-500" />
+                    </div>
+                    <h3 className="text-xl font-bold">Select a message</h3>
+                    <p className="text-zinc-500 max-w-xs text-sm">Choose from your existing conversations, start a new one, or just keep swimming.</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'profile' && (
+            <motion.div
+              key="profile"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="space-y-8"
+            >
+              {/* Profile Card */}
+              <div className="bg-zinc-900/40 backdrop-blur-md border border-zinc-800/50 rounded-[2.5rem] overflow-hidden">
+                <div className="h-32 bg-gradient-to-r from-zinc-800 to-zinc-900" />
+                <div className="px-8 pb-8">
+                  <div className="relative -mt-12 flex items-end justify-between mb-6">
+                    <div className="w-24 h-24 bg-zinc-800 rounded-[2rem] border-4 border-black overflow-hidden flex items-center justify-center">
+                      {isEditingProfile ? (
+                         <div className="bg-zinc-700 w-full h-full flex items-center justify-center">
+                            <Settings className="w-8 h-8 text-white animate-spin-slow" />
+                         </div>
+                      ) : myProfile?.avatar_url ? (
+                        <img src={myProfile.avatar_url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <User className="w-12 h-12 text-zinc-600" />
+                      )}
+                    </div>
+                    <button 
+                      onClick={() => setIsEditingProfile(!isEditingProfile)}
+                      className="px-6 py-2 bg-transparent border border-zinc-700 hover:bg-white/5 rounded-full text-sm font-bold transition-all mt-6"
+                    >
+                      {isEditingProfile ? 'Cancel' : 'Edit Profile'}
+                    </button>
+                  </div>
+
+                  {isEditingProfile ? (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest pl-1">Username</label>
+                          <input 
+                            type="text" 
+                            value={editProfileData.username}
+                            onChange={(e) => setEditProfileData(prev => ({ ...prev, username: e.target.value }))}
+                            className="w-full bg-zinc-950/50 border border-zinc-800 rounded-2xl px-4 py-3 text-sm focus:border-white/20 transition-all"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest pl-1">Full Name</label>
+                          <input 
+                            type="text" 
+                            value={editProfileData.full_name}
+                            onChange={(e) => setEditProfileData(prev => ({ ...prev, full_name: e.target.value }))}
+                            className="w-full bg-zinc-950/50 border border-zinc-800 rounded-2xl px-4 py-3 text-sm focus:border-white/20 transition-all"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest pl-1">Avatar URL</label>
+                        <input 
+                          type="text" 
+                          value={editProfileData.avatar_url}
+                          onChange={(e) => setEditProfileData(prev => ({ ...prev, avatar_url: e.target.value }))}
+                          className="w-full bg-zinc-950/50 border border-zinc-800 rounded-2xl px-4 py-3 text-sm focus:border-white/20 transition-all"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest pl-1">Bio</label>
+                        <textarea 
+                          value={editProfileData.bio}
+                          onChange={(e) => setEditProfileData(prev => ({ ...prev, bio: e.target.value }))}
+                          className="w-full bg-zinc-950/50 border border-zinc-800 rounded-2xl px-4 py-3 text-sm focus:border-white/20 transition-all min-h-[100px] resize-none"
+                        />
+                      </div>
+                      <button 
+                        onClick={handleUpdateProfile}
+                        disabled={isLoading}
+                        className="w-full py-4 bg-white text-black rounded-2xl font-bold hover:bg-zinc-200 transition-all active:scale-[0.99] disabled:opacity-50"
+                      >
+                        {isLoading ? 'Saving...' : 'Save Changes'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <h2 className="text-2xl font-bold tracking-tight">{myProfile?.full_name || myProfile?.username || 'Enter a Name'}</h2>
+                      <p className="text-zinc-500 text-sm">@{myProfile?.username || 'username'}</p>
+                      <p className="text-zinc-300 mt-4 leading-relaxed max-w-lg">{myProfile?.bio || 'You haven’t added a bio yet.'}</p>
+                      
+                      <div className="flex items-center gap-6 mt-6">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-white">{following.length}</span>
+                          <span className="text-zinc-500 text-sm">Following</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-white">{followers.length}</span>
+                          <span className="text-zinc-500 text-sm">Followers</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* Post Form */}
-        <div className="bg-zinc-900/50 backdrop-blur-xl border border-zinc-800 p-6 mb-8 rounded-[2rem] shadow-2xl">
-          <form onSubmit={handlePost}>
-            <div className="flex gap-4">
-              <div className="w-12 h-12 bg-zinc-800 rounded-2xl flex items-center justify-center shrink-0 border border-zinc-700">
-                <User className="w-6 h-6 text-zinc-500" />
-              </div>
-              <div className="flex-1">
-                <textarea
-                  placeholder="What's on your mind?!"
-                  value={newPostContent}
-                  onChange={(e) => setNewPostContent(e.target.value)}
-                  className="w-full min-h-[120px] py-2 bg-transparent text-xl text-white placeholder-zinc-600 focus:outline-none transition-all resize-none"
-                />
-                
-                <div className="flex items-center justify-between pt-6 mt-4 border-t border-zinc-800/50">
-                  <div className="flex items-center gap-2">
-                    {/* Image upload removed */}
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={isLoading || !newPostContent.trim()}
-                    className="flex items-center gap-2 bg-white text-black px-8 py-2.5 rounded-2xl font-bold hover:bg-zinc-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] shadow-lg"
-                  >
-                    {isLoading ? 'Posting...' : 'Share'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </form>
-        </div>
-
-        {/* Posts List */}
-        <div className="grid grid-cols-1 gap-6">
-          <AnimatePresence mode="popLayout">
-            {posts.map((post) => {
-              const isExpanded = expandedPosts[post.id];
-              const hasLongContent = post.content.length > 280;
-              const shouldShowMore = hasLongContent && !isExpanded;
-
-              return (
-                <motion.div
-                  key={post.id}
-                  layout
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-                  className="bg-zinc-900/40 backdrop-blur-md border border-zinc-800/50 rounded-[2.5rem] overflow-hidden group hover:border-zinc-700/50 transition-all duration-500"
-                >
-                  <div className="p-8">
-                    <div className="flex gap-4 mb-6">
-                      <div className="w-12 h-12 bg-zinc-800 rounded-2xl flex items-center justify-center shrink-0 border border-zinc-700">
-                        <User className="w-6 h-6 text-zinc-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <div className="flex flex-col">
-                            <span className="font-bold text-white text-lg tracking-tight">{post.email.split('@')[0]}</span>
-                            <span className="text-zinc-500 text-xs">
-                              {new Date(post.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                          </div>
-                          {userId === post.user_id && (
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingPostId(post.id);
-                                  setEditContent(post.content);
-                                }}
-                                className="p-2.5 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-2xl transition-all"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDelete(post.id);
-                                }}
-                                className="p-2.5 text-zinc-500 hover:text-red-500 hover:bg-red-500/10 rounded-2xl transition-all"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-6">
-                      <div className={`relative ${shouldShowMore ? 'max-h-40 overflow-hidden' : ''}`}>
-                        <p className="text-zinc-200 leading-relaxed whitespace-pre-wrap text-[17px] font-medium">
-                          {post.content}
-                        </p>
-                        {shouldShowMore && (
-                          <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-zinc-900 to-transparent pointer-events-none" />
-                        )}
-                      </div>
-
-                      <div className="flex items-center justify-between pt-4">
-                        <div className="flex items-center gap-6">
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleLike(post.id, !!post.user_has_liked);
-                            }}
-                            className={`flex items-center gap-2 text-sm transition-all group ${post.user_has_liked ? 'text-pink-500' : 'text-zinc-500 hover:text-pink-500'}`}
-                          >
-                            <div className={`p-3 rounded-2xl transition-colors ${post.user_has_liked ? 'bg-pink-500/10' : 'bg-white/5 group-hover:bg-pink-500/10'}`}>
-                              <Heart className={`w-5 h-5 ${post.user_has_liked ? 'fill-current' : ''}`} />
-                            </div>
-                            <span className="font-bold text-base">{post.likes_count || 0}</span>
-                          </button>
-
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (activeCommentPostId === post.id) {
-                                setActiveCommentPostId(null);
-                                if (!hasLongContent) toggleExpand(post.id);
-                              } else {
-                                setActiveCommentPostId(post.id);
-                                fetchComments(post.id);
-                                if (!isExpanded) toggleExpand(post.id);
-                              }
-                            }}
-                            className={`flex items-center gap-2 text-sm transition-all group ${activeCommentPostId === post.id ? 'text-sky-500' : 'text-zinc-500 hover:text-sky-500'}`}
-                          >
-                            <div className={`p-3 rounded-2xl transition-colors ${activeCommentPostId === post.id ? 'bg-sky-500/10' : 'bg-white/5 group-hover:bg-sky-500/10'}`}>
-                              <MessageSquare className="w-5 h-5" />
-                            </div>
-                            <span className="font-bold text-base">Comments</span>
-                          </button>
-                        </div>
-
-                        {(hasLongContent || activeCommentPostId === post.id) && (
-                          <button 
-                            onClick={() => toggleExpand(post.id)}
-                            className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white rounded-2xl transition-all text-sm font-bold"
-                          >
-                            {isExpanded ? (
-                              <><ChevronUp className="w-4 h-4" /> Less</>
-                            ) : (
-                              <><ChevronDown className="w-4 h-4" /> More</>
-                            )}
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Comments Section */}
-                      <AnimatePresence>
-                        {isExpanded && activeCommentPostId === post.id && (
-                          <motion.div 
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="space-y-6 pt-8 border-t border-zinc-800/50 mt-4 overflow-hidden"
-                          >
-                            <div className="flex gap-4">
-                              <div className="w-10 h-10 bg-zinc-800 rounded-xl flex items-center justify-center shrink-0 border border-zinc-700">
-                                <User className="w-5 h-5 text-zinc-500" />
-                              </div>
-                              <div className="flex-1 flex gap-3">
-                                <input 
-                                  type="text"
-                                  placeholder="Post your reply"
-                                  value={newCommentContent}
-                                  onChange={(e) => setNewCommentContent(e.target.value)}
-                                  className="flex-1 bg-zinc-950/50 border border-zinc-800/50 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-sky-500 transition-all placeholder:text-zinc-700"
-                                />
-                                <button 
-                                  onClick={() => handleAddComment(post.id)}
-                                  disabled={!newCommentContent.trim()}
-                                  className="bg-sky-500 text-white px-6 py-2 rounded-xl text-sm font-bold hover:bg-sky-600 disabled:opacity-50 transition-colors shadow-lg shadow-sky-500/20"
-                                >
-                                  Reply
-                                </button>
-                              </div>
-                            </div>
-
-                            <div className="space-y-8 pl-4">
-                              {(comments[post.id] || [])
-                                .filter(c => !c.parent_id)
-                                .map(comment => (
-                                  <div key={comment.id} className="space-y-4">
-                                    <div className="flex gap-4">
-                                      <div className="w-10 h-10 bg-zinc-900 rounded-xl flex items-center justify-center shrink-0 border border-zinc-800">
-                                        <User className="w-5 h-5 text-zinc-600" />
-                                      </div>
-                                      <div className="flex-1">
-                                        <div className="flex items-center gap-2 mb-1">
-                                          <span className="text-sm font-bold text-white">{comment.user_email?.split('@')[0]}</span>
-                                          <span className="text-zinc-600 text-xs font-medium">· {new Date(comment.created_at).toLocaleDateString()}</span>
-                                        </div>
-                                        <p className="text-[15px] text-zinc-300 leading-relaxed">{comment.content}</p>
-                                        <button 
-                                          onClick={() => setReplyingToId(replyingToId === comment.id ? null : comment.id)}
-                                          className="text-xs font-bold text-zinc-500 hover:text-sky-500 mt-3 transition-colors uppercase tracking-wider"
-                                        >
-                                          Reply
-                                        </button>
-                                      </div>
-                                    </div>
-
-                                    {/* Replies */}
-                                    <div className="ml-14 space-y-6 border-l border-zinc-800/50 pl-6">
-                                      {(comments[post.id] || [])
-                                        .filter(r => r.parent_id === comment.id)
-                                        .map(reply => (
-                                          <div key={reply.id} className="flex gap-3">
-                                            <div className="w-8 h-8 bg-zinc-900/50 rounded-lg flex items-center justify-center shrink-0 border border-zinc-800/50">
-                                              <User className="w-4 h-4 text-zinc-700" />
-                                            </div>
-                                            <div>
-                                              <div className="flex items-center gap-2 mb-1">
-                                                <span className="text-sm font-bold text-zinc-200">{reply.user_email?.split('@')[0]}</span>
-                                              </div>
-                                              <p className="text-sm text-zinc-400 leading-relaxed">{reply.content}</p>
-                                            </div>
-                                          </div>
-                                        ))}
-                                      
-                                      {replyingToId === comment.id && (
-                                        <div className="flex gap-3 pt-2">
-                                          <input 
-                                            autoFocus
-                                            type="text"
-                                            placeholder="Write a reply..."
-                                            value={newCommentContent}
-                                            onChange={(e) => setNewCommentContent(e.target.value)}
-                                            className="flex-1 bg-zinc-950/30 border border-zinc-800/50 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
-                                          />
-                                          <button 
-                                            onClick={() => handleAddComment(post.id, comment.id)}
-                                            disabled={!newCommentContent.trim()}
-                                            className="bg-sky-500/10 text-sky-400 px-4 py-2 rounded-lg text-xs font-bold hover:bg-sky-500/20 transition-all border border-sky-500/20"
-                                          >
-                                            Post
-                                          </button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  </div>
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
-
-          {posts.length === 0 && (
-            <div className="text-center py-20">
-              <p className="text-zinc-600 font-medium">No posts yet. Be the first to share something!</p>
-            </div>
-          )}
-        </div>
       </main>
     </div>
   );
