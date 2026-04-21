@@ -95,6 +95,8 @@ export default function App() {
   
   // New State for Social Features
   const [activeTab, setActiveTab] = useState<'feed' | 'messages' | 'profile'>('feed');
+  const [viewingProfileId, setViewingProfileId] = useState<string | null>(null);
+  const [profileViewData, setProfileViewData] = useState<Profile | null>(null);
   const [myProfile, setMyProfile] = useState<Profile | null>(null);
   const [followers, setFollowers] = useState<string[]>([]);
   const [following, setFollowing] = useState<string[]>([]);
@@ -103,6 +105,8 @@ export default function App() {
   const [directMessages, setDirectMessages] = useState<Message[]>([]);
   const [newMessageText, setNewMessageText] = useState('');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [activeFollowList, setActiveFollowList] = useState<'followers' | 'following' | null>(null);
+  const [viewingFollows, setViewingFollows] = useState<{followers: string[], following: string[]}>({followers: [], following: []});
   const [editProfileData, setEditProfileData] = useState({ username: '', bio: '', avatar_url: '', full_name: '' });
 
   useEffect(() => {
@@ -154,13 +158,53 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (userEmail && userId) {
-      fetchPosts();
-      fetchProfileData();
-      fetchAllProfiles();
-      setupRealtimeMessages();
+    if (activeTab === 'profile') {
+      const targetId = viewingProfileId || userId;
+      if (targetId) {
+        fetchSpecificProfile(targetId);
+        fetchFollowStats(targetId);
+      }
     }
-  }, [userEmail, userId]);
+  }, [activeTab, viewingProfileId, userId, myProfile]);
+
+  const fetchFollowStats = async (id: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('follows')
+        .select('*')
+        .or(`follower_id.eq.${id},following_id.eq.${id}`);
+      
+      if (error) throw error;
+      
+      const stats = {
+        followers: data.filter(f => f.following_id === id).map(f => f.follower_id),
+        following: data.filter(f => f.follower_id === id).map(f => f.following_id)
+      };
+      setViewingFollows(stats);
+    } catch (err) {
+      console.error('Fetch follow stats error:', err);
+    }
+  };
+
+  const fetchSpecificProfile = async (id: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', id)
+        .single();
+      if (error) throw error;
+      setProfileViewData(data);
+    } catch (err) {
+      console.error('Fetch specific profile error:', err);
+    }
+  };
+
+  const navigateToProfile = (id: string) => {
+    setViewingProfileId(id);
+    setActiveTab('profile');
+    setIsEditingProfile(false);
+  };
 
   useEffect(() => {
     if (selectedChatUserId) {
@@ -784,7 +828,10 @@ export default function App() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between">
                               <div className="flex flex-col">
-                                <span className="font-bold text-white text-lg tracking-tight hover:underline cursor-pointer">
+                                <span 
+                                  onClick={() => navigateToProfile(post.user_id)}
+                                  className="font-bold text-white text-lg tracking-tight hover:underline cursor-pointer"
+                                >
                                   {postProfile?.username || post.email.split('@')[0]}
                                 </span>
                                 <span className="text-zinc-500 text-xs">
@@ -1018,7 +1065,16 @@ export default function App() {
             >
               {/* Profile Card */}
               <div className="bg-zinc-900/40 backdrop-blur-md border border-zinc-800/50 rounded-[2.5rem] overflow-hidden">
-                <div className="h-32 bg-gradient-to-r from-zinc-800 to-zinc-900" />
+                <div className="h-32 bg-gradient-to-r from-zinc-800 to-zinc-900 flex items-start p-4">
+                  {viewingProfileId && viewingProfileId !== userId && (
+                    <button 
+                      onClick={() => setViewingProfileId(null)}
+                      className="p-2 bg-black/50 backdrop-blur-md rounded-full text-white hover:bg-black/70 transition-all"
+                    >
+                      <ArrowLeft className="w-5 h-5" />
+                    </button>
+                  )}
+                </div>
                 <div className="px-8 pb-8">
                   <div className="relative -mt-12 flex items-end justify-between mb-6">
                     <div className="w-24 h-24 bg-zinc-800 rounded-[2rem] border-4 border-black overflow-hidden flex items-center justify-center">
@@ -1026,21 +1082,44 @@ export default function App() {
                          <div className="bg-zinc-700 w-full h-full flex items-center justify-center">
                             <Settings className="w-8 h-8 text-white animate-spin-slow" />
                          </div>
-                      ) : myProfile?.avatar_url ? (
-                        <img src={myProfile.avatar_url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : profileViewData?.avatar_url ? (
+                        <img src={profileViewData.avatar_url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
                         <User className="w-12 h-12 text-zinc-600" />
                       )}
                     </div>
-                    <button 
-                      onClick={() => setIsEditingProfile(!isEditingProfile)}
-                      className="px-6 py-2 bg-transparent border border-zinc-700 hover:bg-white/5 rounded-full text-sm font-bold transition-all mt-6"
-                    >
-                      {isEditingProfile ? 'Cancel' : 'Edit Profile'}
-                    </button>
+                    
+                    <div className="flex gap-2">
+                      {(!viewingProfileId || viewingProfileId === userId) ? (
+                        <button 
+                          onClick={() => setIsEditingProfile(!isEditingProfile)}
+                          className="px-6 py-2 bg-transparent border border-zinc-700 hover:bg-white/5 rounded-full text-sm font-bold transition-all mt-6"
+                        >
+                          {isEditingProfile ? 'Cancel' : 'Edit Profile'}
+                        </button>
+                      ) : (
+                        <>
+                          <button 
+                            onClick={() => handleFollow(viewingProfileId)}
+                            className={`px-6 py-2 rounded-full text-sm font-bold transition-all mt-6 ${following.includes(viewingProfileId) ? 'bg-zinc-800 text-zinc-400 border border-zinc-700' : 'bg-white text-black hover:bg-zinc-200'}`}
+                          >
+                            {following.includes(viewingProfileId) ? 'Following' : 'Follow'}
+                          </button>
+                          <button 
+                            onClick={() => {
+                              setSelectedChatUserId(viewingProfileId);
+                              setActiveTab('messages');
+                            }}
+                            className="px-6 py-2 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-full text-sm font-bold text-white transition-all mt-6"
+                          >
+                            Message
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
 
-                  {isEditingProfile ? (
+                  {isEditingProfile && (!viewingProfileId || viewingProfileId === userId) ? (
                     <div className="space-y-6">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -1089,18 +1168,42 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <h2 className="text-2xl font-bold tracking-tight">{myProfile?.full_name || myProfile?.username || 'Enter a Name'}</h2>
-                      <p className="text-zinc-500 text-sm">@{myProfile?.username || 'username'}</p>
-                      <p className="text-zinc-300 mt-4 leading-relaxed max-w-lg">{myProfile?.bio || 'You haven’t added a bio yet.'}</p>
+                      <h2 className="text-2xl font-bold tracking-tight">{profileViewData?.full_name || profileViewData?.username || 'User'}</h2>
+                      <p className="text-zinc-500 text-sm">@{profileViewData?.username || 'username'}</p>
+                      <p className="text-zinc-300 mt-4 leading-relaxed max-w-lg">{profileViewData?.bio || 'No bio yet.'}</p>
                       
-                      <div className="flex items-center gap-6 mt-6">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-white">{following.length}</span>
-                          <span className="text-zinc-500 text-sm">Following</span>
+                      <div className="flex flex-col gap-6 mt-6">
+                        <div className="flex items-center gap-6">
+                          <button 
+                            className="flex items-center gap-1.5 group"
+                            onClick={() => setActiveFollowList('following')}
+                          >
+                            <span className="font-bold text-white">{viewingFollows.following.length}</span>
+                            <span className="text-zinc-500 text-sm group-hover:underline">Following</span>
+                          </button>
+                          <button 
+                            className="flex items-center gap-1.5 group"
+                            onClick={() => setActiveFollowList('followers')}
+                          >
+                            <span className="font-bold text-white">{viewingFollows.followers.length}</span>
+                            <span className="text-zinc-500 text-sm group-hover:underline">Followers</span>
+                          </button>
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-white">{followers.length}</span>
-                          <span className="text-zinc-500 text-sm">Followers</span>
+
+                        {/* Recent Posts from this user */}
+                        <div className="space-y-4 pt-8 border-t border-zinc-800/50">
+                          <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-widest pl-1">Recent Posts</h3>
+                          <div className="grid grid-cols-1 gap-4">
+                            {posts.filter(p => p.user_id === (viewingProfileId || userId)).slice(0, 5).map(post => (
+                              <div key={post.id} className="p-4 bg-zinc-950/30 rounded-2xl border border-zinc-800/30">
+                                <p className="text-zinc-300 text-sm">{post.content}</p>
+                                <span className="text-[10px] text-zinc-600 mt-2 block">{new Date(post.created_at).toLocaleDateString()}</span>
+                              </div>
+                            ))}
+                            {posts.filter(p => p.user_id === (viewingProfileId || userId)).length === 0 && (
+                                <p className="text-zinc-600 text-sm italic py-4">No posts yet.</p>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1111,6 +1214,69 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
+
+      {/* Follow List Modal/Overlay */}
+      <AnimatePresence>
+        {activeFollowList && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-zinc-900 border border-zinc-800 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]"
+            >
+              <div className="p-6 border-b border-zinc-800 flex items-center justify-between">
+                <h3 className="text-lg font-bold capitalize">{activeFollowList}</h3>
+                <button onClick={() => setActiveFollowList(null)} className="p-2 text-zinc-500 hover:text-white transition-colors">
+                   <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                {(activeFollowList === 'followers' ? viewingFollows.followers : viewingFollows.following).map(id => {
+                  const profile = allProfiles.find(p => p.id === id);
+                  return (
+                    <div 
+                      key={id} 
+                      className="flex items-center justify-between p-3 hover:bg-white/5 rounded-2xl transition-all cursor-pointer group"
+                      onClick={() => {
+                        navigateToProfile(id);
+                        setActiveFollowList(null);
+                      }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-zinc-800 rounded-xl flex items-center justify-center overflow-hidden shrink-0">
+                          {profile?.avatar_url ? (
+                            <img src={profile.avatar_url} className="w-full h-full object-cover" />
+                          ) : (
+                            <User className="w-5 h-5 text-zinc-600" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                           <div className="font-bold text-white group-hover:underline truncate">{profile?.username || 'Unknown'}</div>
+                           <div className="text-xs text-zinc-500 truncate">{profile?.full_name || ''}</div>
+                        </div>
+                      </div>
+                      {userId !== id && (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleFollow(id); }}
+                          className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${following.includes(id) ? 'text-zinc-500 border border-zinc-800' : 'bg-white text-black'}`}
+                        >
+                          {following.includes(id) ? 'Following' : 'Follow'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                {(activeFollowList === 'followers' ? viewingFollows.followers : viewingFollows.following).length === 0 && (
+                  <div className="text-center py-10 text-zinc-600">
+                     No {activeFollowList} yet.
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
