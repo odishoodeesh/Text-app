@@ -49,6 +49,25 @@ async function startServer() {
     `);
   });
 
+  // OAuth Callback for Supabase
+  app.get("/auth/callback", (req, res) => {
+    res.send(`
+      <html>
+        <body>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
+              window.close();
+            } else {
+              window.location.href = '/';
+            }
+          </script>
+          <p>Authentication successful. This window should close automatically.</p>
+        </body>
+      </html>
+    `);
+  });
+
   // API Routes
   app.get("/api/posts", async (req, res) => {
     try {
