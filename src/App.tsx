@@ -167,6 +167,15 @@ export default function App() {
     }
   }, [activeTab, viewingProfileId, userId, myProfile]);
 
+  useEffect(() => {
+    if (userEmail && userId) {
+      fetchPosts();
+      fetchProfileData();
+      fetchAllProfiles();
+      setupRealtimeMessages();
+    }
+  }, [userEmail, userId]);
+
   const fetchFollowStats = async (id: string) => {
     try {
       const { data, error } = await supabase
