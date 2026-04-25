@@ -200,20 +200,6 @@ export default function App() {
     }
   };
 
-  const fetchSpecificProfile = async (id: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', id)
-        .single();
-      if (error) throw error;
-      setProfileViewData(data);
-    } catch (err) {
-      console.error('Fetch specific profile error:', err);
-    }
-  };
-
   const navigateToProfile = (id: string) => {
     setViewingProfileId(id);
     setActiveTab('profile');
