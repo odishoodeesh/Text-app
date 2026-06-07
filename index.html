@@ -4,6 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My Google AI Studio App</title>
+    <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+    <script>
+      window.OneSignalDeferred = window.OneSignalDeferred || [];
+      // Only initialize OneSignal on the production domain or local development to prevent origin mismatch errors in AI Studio
+      const isProduction = window.location.origin === "https://text-app-jade.vercel.app";
+      const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
+      if (isProduction || isLocalhost) {
+        OneSignalDeferred.push(async function(OneSignal) {
+          try {
+            await OneSignal.init({
+              appId: "0c668fff-7fe5-400c-9b8a-6ab4f801869a",
+            });
+          } catch (error) {
+            console.warn("OneSignal ignored or failed to initialize:", error);
+          }
+        });
+      } else {
+        console.log("OneSignal push notifications disabled on this origin (" + window.location.origin + ") to prevent configuration mismatch errors.");
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
