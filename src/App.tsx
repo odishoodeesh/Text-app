@@ -20,7 +20,8 @@ import {
   Settings,
   MoreVertical,
   Plus,
-  ArrowLeft
+  ArrowLeft,
+  Printer
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
@@ -108,6 +109,18 @@ export default function App() {
   const [activeFollowList, setActiveFollowList] = useState<'followers' | 'following' | null>(null);
   const [viewingFollows, setViewingFollows] = useState<{followers: string[], following: string[]}>({followers: [], following: []});
   const [editProfileData, setEditProfileData] = useState({ username: '', bio: '', avatar_url: '', full_name: '' });
+
+  // Printer configuration & telemetry state for V3_MIX_STD
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [printReceiptType, setPrintReceiptType] = useState<'single' | 'chat'>('chat');
+  const [singleMessageToPrint, setSingleMessageToPrint] = useState<Message | null>(null);
+  const [receiptTitle, setReceiptTitle] = useState('V3_MIX_STD CHAT LOG');
+  const [receiptSubtitle, setReceiptSubtitle] = useState('OFFICIAL THERMAL LOG');
+  const [receiptDensity, setReceiptDensity] = useState('100%');
+  const [receiptFirmware, setReceiptFirmware] = useState('1.02');
+  const [totalPrintLength, setTotalPrintLength] = useState('1555.877 m');
+  const [printServiceVersion, setPrintServiceVersion] = useState('6.6.16');
+  const [printPaperWidth, setPrintPaperWidth] = useState('80 mm');
 
   useEffect(() => {
     // Check connection to backend
@@ -363,6 +376,219 @@ export default function App() {
     } catch (err) {
       console.error('Message send error:', err);
     }
+  };
+
+  const triggerReceiptPrint = () => {
+    const iframeId = 'receipt-print-iframe';
+    let iframe = document.getElementById(iframeId) as HTMLIFrameElement;
+    if (iframe) {
+      document.body.removeChild(iframe);
+    }
+    iframe = document.createElement('iframe');
+    iframe.id = iframeId;
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
+
+    const chatPartner = allProfiles.find(p => p.id === selectedChatUserId);
+    const partnerName = chatPartner?.username || chatPartner?.full_name || 'Anonymous';
+    const creatorName = myProfile?.username || myProfile?.full_name || userEmail || 'User';
+
+    const escapeHtml = (text: string) => {
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    };
+
+    const contentHtml = printReceiptType === 'single' && singleMessageToPrint
+      ? `<div class="message-item">
+          <div class="meta-row" style="font-size: 11px;">
+            <span>[${new Date(singleMessageToPrint.created_at).toLocaleString()}]</span>
+            <span>${singleMessageToPrint.sender_id === userId ? 'ME' : 'THEM'}</span>
+          </div>
+          <div class="message-text">${escapeHtml(singleMessageToPrint.content)}</div>
+        </div>`
+      : directMessages.map(msg => `
+        <div class="message-item">
+          <div class="meta-row" style="font-size: 11px;">
+            <span>[${new Date(msg.created_at).toLocaleString()}]</span>
+            <span>${msg.sender_id === userId ? 'ME' : 'THEM'}</span>
+          </div>
+          <div class="message-text">${escapeHtml(msg.content)}</div>
+        </div>
+      `).join('<div class="divider"></div>');
+
+    const receiptHtml = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>PRINT JOB - V3_MIX_STD</title>
+          <style>
+            @page {
+              size: 80mm auto;
+              margin: 0;
+            }
+            body {
+              width: 74mm;
+              font-family: 'Courier New', Courier, monospace;
+              margin: 0;
+              padding: 4mm 3mm;
+              color: #000000;
+              background-color: #ffffff;
+              font-size: 12px;
+              line-height: 1.4;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            .text-center { text-align: center; }
+            .text-bold { font-weight: bold; }
+            .header-main {
+              font-size: 16px;
+              font-weight: bold;
+              margin: 4px 0;
+              letter-spacing: 1px;
+              text-transform: uppercase;
+            }
+            .header-sub {
+              font-size: 11px;
+              margin-bottom: 8px;
+              letter-spacing: 0.5px;
+              text-transform: uppercase;
+            }
+            .divider {
+              border-top: 1px dashed #000000;
+              margin: 8px 0;
+            }
+            .double-divider {
+              border-top: 3px double #000000;
+              margin: 8px 0;
+            }
+            .meta-section {
+              font-size: 11px;
+              margin-bottom: 12px;
+            }
+            .meta-row {
+              display: flex;
+              justify-content: space-between;
+              margin: 2px 0;
+            }
+            .message-item {
+              margin: 6px 0;
+              page-break-inside: avoid;
+            }
+            .message-text {
+              font-family: inherit;
+              white-space: pre-wrap;
+              word-break: break-all;
+              padding-left: 8px;
+              border-left: 2px solid #000000;
+              font-size: 12px;
+              margin-top: 2px;
+              text-align: left;
+            }
+            .system-footer {
+              font-size: 10px;
+              margin-top: 15px;
+              line-height: 1.3;
+            }
+            .barcode-container {
+              margin: 12px 0;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+            }
+            .barcode-lines {
+              display: flex;
+              align-items: flex-end;
+              height: 35px;
+              gap: 1.5px;
+            }
+            .barcode-bar {
+              background: #000000;
+              height: 100%;
+            }
+            .barcode-bar.thin { width: 1px; }
+            .barcode-bar.medium { width: 2.5px; }
+            .barcode-bar.thick { width: 4.5px; }
+            .barcode-bar.space { background: transparent; }
+          </style>
+        </head>
+        <body onload="window.print();">
+          <div class="text-center">
+            <div class="header-main">${escapeHtml(receiptTitle)}</div>
+            <div class="header-sub">${escapeHtml(receiptSubtitle)}</div>
+          </div>
+          
+          <div class="double-divider"></div>
+          
+          <div class="meta-section">
+            <div class="meta-row"><span>DATE/TIME:</span><span>${new Date().toLocaleString()}</span></div>
+            <div class="meta-row"><span>PRINTER MODEL:</span><span class="text-bold">V3_MIX_STD</span></div>
+            <div class="meta-row"><span>OPERATOR ID:</span><span>@${escapeHtml(creatorName)}</span></div>
+            <div class="meta-row"><span>TERMINAL JOB:</span><span>TP-PRN-80</span></div>
+            <div class="meta-row"><span>RECIPIENT:</span><span class="text-bold">@${escapeHtml(partnerName)}</span></div>
+          </div>
+          
+          <div class="divider"></div>
+          
+          <div style="font-weight: bold; margin-bottom: 6px; font-size: 11px; text-align: center;">=== CHAT LOG START ===</div>
+          <div class="content-body">
+            ${contentHtml}
+          </div>
+          
+          <div class="double-divider"></div>
+
+          <div style="font-weight: bold; margin-bottom: 4px; font-size: 11px;">PRINTER METRIC TELEMETRY:</div>
+          <div class="meta-section" style="font-size: 10px;">
+            <div class="meta-row"><span>Density Level:</span><span>${escapeHtml(receiptDensity)}</span></div>
+            <div class="meta-row"><span>Paper Stream Width:</span><span>${escapeHtml(printPaperWidth)}</span></div>
+            <div class="meta-row"><span>Print Driver V:</span><span>${escapeHtml(printServiceVersion)}</span></div>
+            <div class="meta-row"><span>Firmware ROM ID:</span><span>${escapeHtml(receiptFirmware)}</span></div>
+            <div class="meta-row"><span>Current Odo Length:</span><span>${escapeHtml(totalPrintLength)}</span></div>
+          </div>
+          
+          <div class="divider"></div>
+
+          <div class="barcode-container text-center">
+            <div class="barcode-lines">
+              <div class="barcode-bar thick"></div>
+              <div class="barcode-bar thin"></div>
+              <div class="barcode-bar space" style="width: 2px;"></div>
+              <div class="barcode-bar medium"></div>
+              <div class="barcode-bar thin"></div>
+              <div class="barcode-bar space" style="width: 1px;"></div>
+              <div class="barcode-bar thick"></div>
+              <div class="barcode-bar medium"></div>
+              <div class="barcode-bar thick"></div>
+              <div class="barcode-bar space" style="width: 3px;"></div>
+              <div class="barcode-bar thin"></div>
+              <div class="barcode-bar thick"></div>
+              <div class="barcode-bar medium"></div>
+              <div class="barcode-bar thin"></div>
+            </div>
+            <span style="font-size: 9px; letter-spacing: 3px; font-family: monospace; display: block; margin-top: 4px;">*V3MIXSTD80MM*</span>
+          </div>
+
+          <div class="text-center system-footer">
+            --- END OF RECEIPT ---<br/>
+            Printed via POS Print Service<br/>
+            Thank you for using our app!
+          </div>
+        </body>
+      </html>
+    `;
+
+    iframe.contentWindow?.document.open();
+    iframe.contentWindow?.document.write(receiptHtml);
+    iframe.contentWindow?.document.close();
   };
 
   const fetchPosts = async () => {
@@ -1006,30 +1232,71 @@ export default function App() {
               <div className={`flex flex-col h-full ${selectedChatUserId ? 'flex' : 'hidden md:flex'}`}>
                 {selectedChatUserId ? (
                   <>
-                    <div className="p-6 border-b border-zinc-800/50 flex items-center gap-4">
-                      <button onClick={() => setSelectedChatUserId(null)} className="md:hidden p-2 text-zinc-500 hover:text-white">
-                        <ArrowLeft className="w-5 h-5" />
+                    <div className="p-6 border-b border-zinc-800/50 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-4">
+                        <button onClick={() => setSelectedChatUserId(null)} className="md:hidden p-2 text-zinc-500 hover:text-white">
+                          <ArrowLeft className="w-5 h-5" />
+                        </button>
+                        <div className="w-10 h-10 bg-zinc-800 rounded-xl flex items-center justify-center overflow-hidden">
+                          {allProfiles.find(p => p.id === selectedChatUserId)?.avatar_url ? (
+                            <img src={allProfiles.find(p => p.id === selectedChatUserId)?.avatar_url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            <User className="w-5 h-5 text-zinc-500" />
+                          )}
+                        </div>
+                        <div className="font-bold text-lg">
+                          {allProfiles.find(p => p.id === selectedChatUserId)?.username || 'Chat'}
+                        </div>
+                      </div>
+                      
+                      <button 
+                        onClick={() => {
+                          setPrintReceiptType('chat');
+                          setSingleMessageToPrint(null);
+                          setIsPrintModalOpen(true);
+                        }}
+                        className="flex items-center gap-2 px-3.5 py-1.5 bg-zinc-800 hover:bg-zinc-700/80 text-white rounded-xl text-xs font-semibold transition-all shadow-sm shrink-0 border border-zinc-700/60"
+                        title="Print entire conversation on V3_MIX_STD 80mm roll"
+                      >
+                        <Printer className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Print Chat Receipt</span>
                       </button>
-                      <div className="w-10 h-10 bg-zinc-800 rounded-xl flex items-center justify-center overflow-hidden">
-                        {allProfiles.find(p => p.id === selectedChatUserId)?.avatar_url ? (
-                          <img src={allProfiles.find(p => p.id === selectedChatUserId)?.avatar_url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                        ) : (
-                          <User className="w-5 h-5 text-zinc-500" />
-                        )}
-                      </div>
-                      <div className="font-bold text-lg">
-                        {allProfiles.find(p => p.id === selectedChatUserId)?.username || 'Chat'}
-                      </div>
                     </div>
                     <div className="flex-1 p-6 space-y-4 overflow-y-auto">
                       {directMessages.map(msg => (
-                        <div key={msg.id} className={`flex ${msg.sender_id === userId ? 'justify-end' : 'justify-start'}`}>
+                        <div key={msg.id} className={`flex group items-end gap-2 ${msg.sender_id === userId ? 'justify-end' : 'justify-start'}`}>
+                          {msg.sender_id !== userId && (
+                            <button 
+                              onClick={() => {
+                                setPrintReceiptType('single');
+                                setSingleMessageToPrint(msg);
+                                setIsPrintModalOpen(true);
+                              }}
+                              className="md:opacity-0 group-hover:opacity-100 p-1.5 bg-zinc-800/60 text-zinc-400 hover:text-emerald-400 rounded-lg transition-all flex items-center justify-center"
+                              title="Print Single Message"
+                            >
+                              <Printer className="w-3 h-3" />
+                            </button>
+                          )}
                           <div className={`max-w-[80%] p-4 rounded-[1.5rem] text-[15px] leading-relaxed ${msg.sender_id === userId ? 'bg-white text-black font-medium rounded-tr-none' : 'bg-zinc-800 text-white rounded-tl-none border border-zinc-700'}`}>
                             {msg.content}
                             <div className="text-[10px] mt-1 opacity-50 text-right">
                               {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </div>
                           </div>
+                          {msg.sender_id === userId && (
+                            <button 
+                              onClick={() => {
+                                setPrintReceiptType('single');
+                                setSingleMessageToPrint(msg);
+                                setIsPrintModalOpen(true);
+                              }}
+                              className="md:opacity-0 group-hover:opacity-100 p-1.5 bg-zinc-800/60 text-zinc-400 hover:text-emerald-400 rounded-lg transition-all flex items-center justify-center"
+                              title="Print Single Message"
+                            >
+                              <Printer className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1281,6 +1548,242 @@ export default function App() {
                      No {activeFollowList} yet.
                   </div>
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* V3_MIX_STD Thermal Receipt Print Modal */}
+      <AnimatePresence>
+        {isPrintModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm overflow-y-auto">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 10 }}
+              className="bg-zinc-900 border border-zinc-800 w-full max-w-4xl rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col md:flex-row h-full max-h-[90vh] md:max-h-[80vh]"
+            >
+              {/* Left Config Panel */}
+              <div className="flex-1 p-6 sm:p-8 flex flex-col justify-between overflow-y-auto border-b md:border-b-0 md:border-r border-zinc-800/80">
+                <div>
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-2 text-emerald-400 font-bold tracking-wide uppercase text-xs">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                      V3_MIX_STD Driver Active
+                    </div>
+                    <button 
+                      onClick={() => setIsPrintModalOpen(false)}
+                      className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-full transition-all"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <h3 className="text-2xl font-black text-white tracking-tight mb-2">Receipt Setup</h3>
+                  <p className="text-zinc-500 text-xs mb-6">Configure receipt formatting guidelines for the 80mm thermal printer roll.</p>
+
+                  <div className="space-y-4">
+                    {/* Header text setup */}
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block pl-1">Receipt Header Title</label>
+                      <input 
+                        type="text"
+                        value={receiptTitle}
+                        onChange={(e) => setReceiptTitle(e.target.value)}
+                        className="w-full bg-zinc-950/60 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/40"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block pl-1">Receipt Header Subtitle</label>
+                      <input 
+                        type="text"
+                        value={receiptSubtitle}
+                        onChange={(e) => setReceiptSubtitle(e.target.value)}
+                        className="w-full bg-zinc-950/60 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/40"
+                      />
+                    </div>
+
+                    {/* Telemetry data config input cards */}
+                    <div className="pt-4 border-t border-zinc-800/50">
+                      <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-3 pl-1">V3_MIX_STD Hardware & Metric Counters</span>
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-zinc-600 uppercase block pl-1">Print Density</label>
+                          <input 
+                            type="text"
+                            value={receiptDensity}
+                            onChange={(e) => setReceiptDensity(e.target.value)}
+                            className="w-full bg-zinc-950/40 border border-zinc-800/80 rounded-lg px-3 py-1.5 text-xs text-zinc-400 focus:outline-none focus:border-emerald-500/30"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-zinc-600 uppercase block pl-1">Firmware ROM</label>
+                          <input 
+                            type="text"
+                            value={receiptFirmware}
+                            onChange={(e) => setReceiptFirmware(e.target.value)}
+                            className="w-full bg-zinc-950/40 border border-zinc-800/80 rounded-lg px-3 py-1.5 text-xs text-zinc-400 focus:outline-none focus:border-emerald-500/30"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-zinc-600 uppercase block pl-1">Cumulative Odometer</label>
+                          <input 
+                            type="text"
+                            value={totalPrintLength}
+                            onChange={(e) => setTotalPrintLength(e.target.value)}
+                            className="w-full bg-zinc-950/40 border border-zinc-800/80 rounded-lg px-3 py-1.5 text-xs text-zinc-400 focus:outline-none focus:border-emerald-500/30"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-zinc-600 uppercase block pl-1">Print Service V</label>
+                          <input 
+                            type="text"
+                            value={printServiceVersion}
+                            onChange={(e) => setPrintServiceVersion(e.target.value)}
+                            className="w-full bg-zinc-950/40 border border-zinc-800/80 rounded-lg px-3 py-1.5 text-xs text-zinc-400 focus:outline-none focus:border-emerald-500/30"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-6 mt-6 border-t border-zinc-800/50 flex flex-col sm:flex-row gap-3">
+                  <button 
+                    onClick={() => setIsPrintModalOpen(false)}
+                    className="flex-1 py-3 border border-zinc-800 hover:bg-white/5 text-zinc-400 hover:text-white rounded-xl text-xs font-bold transition-all text-center"
+                  >
+                    Cancel Action
+                  </button>
+                  <button 
+                    onClick={() => {
+                      triggerReceiptPrint();
+                      setIsPrintModalOpen(false);
+                    }}
+                    className="flex-[1.5] py-3 bg-white text-black hover:bg-zinc-200 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-lg"
+                  >
+                    <Printer className="w-4 h-4 text-emerald-600" />
+                    TRIGGER PRINTJOB
+                  </button>
+                </div>
+              </div>
+
+              {/* Right Receipt Live Preview Panel */}
+              <div className="w-full md:w-[360px] bg-zinc-950 p-6 flex flex-col overflow-y-auto shrink-0 select-none border-t md:border-t-0 border-zinc-800/50 justify-between">
+                <div>
+                  <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4 pl-1 flex items-center justify-between">
+                    <span>80mm Ticket Live Output</span>
+                    <span className="text-zinc-600 text-[9px]">Monospace Courier 38ch</span>
+                  </div>
+
+                  {/* Real simulated thermal ticket */}
+                  <div className="bg-white text-black p-5 rounded-lg shadow-inner font-mono text-xs leading-tight border-x border-dashed border-zinc-300 relative select-text overflow-x-auto selection:bg-emerald-100">
+                    <div className="absolute top-0 inset-x-0 h-1.5 bg-[linear-gradient(45deg,#18181b_25%,transparent_25%),linear-gradient(-45deg,#18181b_25%,transparent_25%)] bg-[size:6px_6px] bg-repeat-x"></div>
+                    
+                    <div className="pt-4 text-center">
+                      <div className="font-bold text-sm tracking-wide uppercase break-words">{receiptTitle || 'V3_MIX_STD CHAT LOG'}</div>
+                      <div className="text-[9px] uppercase tracking-wider mb-2">{receiptSubtitle || 'OFFICIAL THERMAL LOG'}</div>
+                    </div>
+                    
+                    <div className="border-t-2 border-double border-black my-2"></div>
+                    
+                    <div className="text-[9px] space-y-0.5">
+                      <div className="flex justify-between"><span>DATE:</span><span>{new Date().toLocaleDateString()}</span></div>
+                      <div className="flex justify-between"><span>TIME:</span><span>{new Date().toLocaleTimeString()}</span></div>
+                      <div className="flex justify-between"><span>MODEL:</span><span>V3_MIX_STD</span></div>
+                      <div className="flex justify-between"><span>OPERATOR:</span><span className="truncate max-w-[120px]">@{myProfile?.username || myProfile?.full_name || 'User'}</span></div>
+                      <div className="flex justify-between"><span>RECIPIENT:</span><span className="truncate max-w-[120px]">@{allProfiles.find(p => p.id === selectedChatUserId)?.username || 'Partner'}</span></div>
+                    </div>
+                    
+                    <div className="border-t border-dashed border-black my-2"></div>
+
+                    <div className="text-[10px] text-center font-bold tracking-widest my-1">=== TRANSCRIPT ===</div>
+                    
+                    <div className="space-y-2 mt-2">
+                      {printReceiptType === 'single' && singleMessageToPrint ? (
+                        <div className="space-y-0.5">
+                          <div className="flex justify-between text-[8px] text-zinc-600">
+                            <span>[{new Date(singleMessageToPrint.created_at).toLocaleTimeString()}]</span>
+                            <span>{singleMessageToPrint.sender_id === userId ? 'ME' : 'THEM'}</span>
+                          </div>
+                          <div className="border-l-2 border-black pl-1.5 text-left py-0.5 whitespace-pre-wrap break-all leading-normal" style={{ fontSize: '10px' }}>
+                            {singleMessageToPrint.content}
+                          </div>
+                        </div>
+                      ) : directMessages.length > 0 ? (
+                        directMessages.slice(-5).map(msg => (
+                          <div key={msg.id} className="space-y-0.5">
+                            <div className="flex justify-between text-[8px] text-zinc-600">
+                              <span>[{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}]</span>
+                              <span>{msg.sender_id === userId ? 'ME' : 'THEM'}</span>
+                            </div>
+                            <div className="border-l border-black pl-1.5 text-left py-0.5 whitespace-pre-wrap break-all leading-normal" style={{ fontSize: '10px' }}>
+                              {msg.content}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-zinc-400 italic text-center py-4">No message items</div>
+                      )}
+                      {printReceiptType === 'chat' && directMessages.length > 5 && (
+                        <div className="text-center text-[7px] text-zinc-500 py-1 border-t border-zinc-200 mt-1">
+                          + {directMessages.length - 5} older records formatted in final roll
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="border-t-2 border-double border-black my-2.5"></div>
+                    
+                    <div className="text-[9px] space-y-0.5">
+                      <div className="font-bold mb-1 text-[8px]">POS PRINTER STATUS TELEMETRY:</div>
+                      <div className="flex justify-between text-[8px]"><span>Density Level:</span><span>{receiptDensity}</span></div>
+                      <div className="flex justify-between text-[8px]"><span>Paper roll width:</span><span>{printPaperWidth}</span></div>
+                      <div className="flex justify-between text-[8px]"><span>Print Service V:</span><span>{printServiceVersion}</span></div>
+                      <div className="flex justify-between text-[8px]"><span>Firmware ROM:</span><span>{receiptFirmware}</span></div>
+                      <div className="flex justify-between text-[8px]"><span>Cumulative Odo:</span><span>{totalPrintLength}</span></div>
+                    </div>
+
+                    <div className="border-t border-dashed border-black my-2"></div>
+
+                    {/* Barcode representation */}
+                    <div className="flex flex-col items-center justify-center my-2 opacity-90">
+                      <div className="flex items-end h-6 gap-[1px]">
+                        <div className="bg-black w-[3px] h-full"></div>
+                        <div className="bg-black w-[1px] h-full"></div>
+                        <div className="bg-transparent w-[1px] h-full"></div>
+                        <div className="bg-black w-[2px] h-full"></div>
+                        <div className="bg-black w-[1px] h-full"></div>
+                        <div className="bg-transparent w-[2px] h-full"></div>
+                        <div className="bg-black w-[3px] h-full"></div>
+                        <div className="bg-black w-[2px] h-full"></div>
+                        <div className="bg-black w-[3px] h-full"></div>
+                        <div className="bg-transparent w-[1px] h-full"></div>
+                        <div className="bg-black w-[1px] h-full"></div>
+                        <div className="bg-black w-[3px] h-full"></div>
+                        <div className="bg-black w-[2px] h-full"></div>
+                      </div>
+                      <span className="text-[7px] tracking-[2px] font-mono select-none block mt-0.5">*V3MIXSTD80MM*</span>
+                    </div>
+
+                    <div className="text-[8px] text-center text-zinc-600 leading-normal mt-2">
+                      --- END OF SERVICE RECORD ---<br/>
+                      V3_MIX_STD Automatic Parser
+                    </div>
+
+                    <div className="absolute bottom-0 inset-x-0 h-1.5 bg-[linear-gradient(45deg,#18181b_25%,transparent_25%),linear-gradient(-45deg,#18181b_25%,transparent_25%)] bg-[size:6px_6px] bg-repeat-x"></div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 text-[10px] text-zinc-505 mt-4 leading-normal bg-zinc-90 w-full p-3 rounded-2xl border border-zinc-800/40 text-zinc-530">
+                  <Printer className="w-5 h-5 text-zinc-600 shrink-0" />
+                  <span>The live ticket preview conforms to standard 80mm roll viewport calculations.</span>
+                </div>
               </div>
             </motion.div>
           </div>

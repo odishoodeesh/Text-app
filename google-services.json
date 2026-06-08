@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "285908682437",
+    "project_id": "text-post-5aa94",
+    "storage_bucket": "text-post-5aa94.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:285908682437:android:9b870690614b1e05b552ac",
+        "android_client_info": {
+          "package_name": "co.median.android.xlemrmx"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCReA4-qbA4SYkxq9yvHWwljgL2-MOkWk0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
