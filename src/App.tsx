@@ -21,7 +21,8 @@ import {
   MoreVertical,
   Plus,
   ArrowLeft,
-  Printer
+  Printer,
+  Cpu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
@@ -95,7 +96,7 @@ export default function App() {
   const [dbStatus, setDbStatus] = useState<'checking' | 'connected' | 'error'>('checking');
   
   // New State for Social Features
-  const [activeTab, setActiveTab] = useState<'feed' | 'messages' | 'profile'>('feed');
+  const [activeTab, setActiveTab] = useState<'feed' | 'messages' | 'profile' | 'ecr'>('feed');
   const [viewingProfileId, setViewingProfileId] = useState<string | null>(null);
   const [profileViewData, setProfileViewData] = useState<Profile | null>(null);
   const [myProfile, setMyProfile] = useState<Profile | null>(null);
@@ -121,6 +122,23 @@ export default function App() {
   const [totalPrintLength, setTotalPrintLength] = useState('1555.877 m');
   const [printServiceVersion, setPrintServiceVersion] = useState('6.6.16');
   const [printPaperWidth, setPrintPaperWidth] = useState('80 mm');
+
+  // Sunmi Remote ECR (Electronic Cash Register) Service bindings & diagnostic states
+  const [ecrServiceBound, setEcrServiceBound] = useState<boolean>(true);
+  const [ecrConnectingState, setEcrConnectingState] = useState<'idle' | 'binding' | 'bound' | 'error'>('bound');
+  const [ecrActiveDevice, setEcrActiveDevice] = useState<string>('SUNMI-T3_PRO-V3_MIX');
+  const [ecrIpPortAddress, setEcrIpPortAddress] = useState<string>('127.0.0.1:23000');
+  const [ecrActiveMerchantNo, setEcrActiveMerchantNo] = useState<string>('MID-99211-SUNMI-ECR');
+  const [ecrActiveTerminalNo, setEcrActiveTerminalNo] = useState<string>('TID-MIX-80MM-STD');
+  const [ecrConnectionMode, setEcrConnectionMode] = useState<'intent' | 'socket' | 'usb'>('intent');
+  const [ecrSimulatedLogs, setEcrSimulatedLogs] = useState<Array<{id: number, time: string, tag: string, content: string, type: 'info' | 'error' | 'success'}>>([
+    { id: 1, time: new Date().toLocaleTimeString(), tag: 'MyApplication', content: 'Application onCreate - Invoking ECRService remote binders', type: 'info' },
+    { id: 2, time: new Date().toLocaleTimeString(), tag: 'ECRServiceKernel', content: 'bindService() called with context and ConnectionCallback', type: 'info' },
+    { id: 3, time: new Date().toLocaleTimeString(), tag: 'ECRServiceKernel', content: 'Checking com.sunmi.ecr.service package existence... Found.', type: 'info' },
+    { id: 4, time: new Date().toLocaleTimeString(), tag: 'MyApplication', content: 'onServiceConnected callback triggered! ECR link is ACTIVE.', type: 'success' },
+    { id: 5, time: new Date().toLocaleTimeString(), tag: 'POSService', content: 'Automatic telemetry polling connected on internal ports', type: 'info' }
+  ]);
+
 
   useEffect(() => {
     // Check connection to backend
@@ -622,6 +640,78 @@ export default function App() {
     }, 350);
   };
 
+  const handleToggleEcrBinding = () => {
+    if (ecrServiceBound) {
+      setEcrConnectingState('idle');
+      setEcrServiceBound(false);
+      setEcrSimulatedLogs(prev => [
+        ...prev,
+        {
+          id: prev.length + 1,
+          time: new Date().toLocaleTimeString(),
+          tag: 'MyApplication',
+          content: 'unbindService() called. ConnectionCallback.onServiceDisconnected triggered.',
+          type: 'error'
+        }
+      ]);
+    } else {
+      setEcrConnectingState('binding');
+      setEcrSimulatedLogs(prev => [
+        ...prev,
+        {
+          id: prev.length + 1,
+          time: new Date().toLocaleTimeString(),
+          tag: 'MyApplication',
+          content: 'bindService() issued by thread group. connectionCallback active.',
+          type: 'info'
+        }
+      ]);
+      setTimeout(() => {
+        setEcrConnectingState('bound');
+        setEcrServiceBound(true);
+        setEcrSimulatedLogs(prev => [
+          ...prev,
+          {
+            id: prev.length + 1,
+            time: new Date().toLocaleTimeString(),
+            tag: 'ECRServiceKernel',
+            content: 'onServiceConnected() connection is ESTABLISHED & bound.',
+            type: 'success'
+          }
+        ]);
+      }, 800);
+    }
+  };
+
+  const handleTriggerEcrTransaction = (amount: string, ptype: string) => {
+    if (!ecrServiceBound) {
+      setError("Cannot trigger payment of " + amount + " USD: Sunmi ECR Service is not bound!");
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+    setEcrSimulatedLogs(prev => [
+      ...prev,
+      {
+        id: prev.length + 1,
+        time: new Date().toLocaleTimeString(),
+        tag: 'ECRServiceKernel',
+        content: `Executing Sale: Amount=${amount} USD Type=${ptype} Merchant=${ecrActiveMerchantNo}`,
+        type: 'info'
+      },
+      {
+        id: prev.length + 1,
+        time: new Date().toLocaleTimeString(),
+        tag: 'POSPrinter',
+        content: 'Auto-printing ECR invoice via Sunmi buildReceiptPrint',
+        type: 'success'
+      }
+    ]);
+  };
+
+  const clearEcrLogs = () => {
+    setEcrSimulatedLogs([]);
+  };
+
   const fetchPosts = async () => {
     try {
       // Fetch posts with profiles
@@ -1003,6 +1093,14 @@ export default function App() {
             >
               <User className={`w-5 h-5 ${activeTab === 'profile' ? 'fill-current' : ''}`} />
               <span className="hidden sm:inline font-bold">Profile</span>
+            </button>
+            <button 
+              onClick={() => setActiveTab('ecr')}
+              className={`p-2 sm:px-4 flex items-center gap-2 rounded-xl transition-all ${activeTab === 'ecr' ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+              title="Sunmi ECR Service Bindings & Telemetry Status"
+            >
+              <Cpu className={`w-5 h-5 ${activeTab === 'ecr' ? 'text-emerald-400' : ''}`} />
+              <span className="hidden sm:inline font-bold">ECR</span>
             </button>
           </nav>
 
@@ -1517,6 +1615,196 @@ export default function App() {
                   )}
                 </div>
               </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'ecr' && (
+            <motion.div
+              key="ecr"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="space-y-6"
+            >
+              {/* Premium Title Section */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-zinc-900/40 border border-zinc-800/40 p-6 rounded-[2.5rem] backdrop-blur-md">
+                <div>
+                  <span className="text-[10px] font-bold tracking-widest text-emerald-400 uppercase block mb-1">Android Hybrid SDK Bridge</span>
+                  <h3 className="text-2xl font-black text-white tracking-tight">Sunmi ECR Service</h3>
+                  <p className="text-zinc-550 text-xs mt-0.5">Dual-screen Electronic Cash Register integration & local binder manager.</p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {ecrConnectingState === 'bound' && (
+                    <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-4 py-2 rounded-2xl flex items-center gap-2 text-xs font-bold shadow-sm shadow-emerald-500/5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                      SERVICE BOUND (onServiceConnected)
+                    </div>
+                  )}
+                  {ecrConnectingState === 'binding' && (
+                    <div className="bg-amber-500/10 border border-amber-500/30 text-amber-400 px-4 py-2 rounded-2xl flex items-center gap-2 text-xs font-bold">
+                      <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></div>
+                      BINDING...
+                    </div>
+                  )}
+                  {ecrConnectingState === 'idle' && (
+                    <div className="bg-zinc-800 border border-zinc-700 text-zinc-400 px-4 py-2 rounded-2xl flex items-center gap-2 text-xs font-bold">
+                      <div className="w-2 h-2 rounded-full bg-zinc-500"></div>
+                      DISCONNECTED / UNBOUND
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Grid with Connection Controls & Fast Actions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* SDK Spec & Config Panel */}
+                <div className="bg-zinc-900/40 border border-zinc-800/40 p-6 rounded-[2.5rem] flex flex-col justify-between space-y-6">
+                  <div>
+                    <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                      <div className="w-1.5 h-3 bg-white rounded-full"></div>
+                      SDK Binding Target Configuration
+                    </h4>
+
+                    <div className="space-y-3.5 text-xs text-zinc-300">
+                      <div className="flex items-center justify-between py-1.5 border-b border-zinc-900">
+                        <span className="text-zinc-500 font-medium">Remote Kernel Class</span>
+                        <code className="bg-zinc-950 px-2 py-0.5 rounded text-zinc-400 font-mono text-[10px]">ECRServiceKernel</code>
+                      </div>
+                      <div className="flex items-center justify-between py-1.5 border-b border-zinc-900">
+                        <span className="text-zinc-500 font-medium">Application Context Package</span>
+                        <code className="bg-zinc-950 px-2 py-0.5 rounded text-zinc-400 font-mono text-[10px]">co.median.android.xlemrmx</code>
+                      </div>
+                      <div className="flex items-center justify-between py-1.5 border-b border-zinc-900">
+                        <span className="text-zinc-500 font-medium">Connection Callback</span>
+                        <code className="bg-zinc-950 px-2 py-0.5 rounded text-zinc-400 font-mono text-[10px]">ConnectionCallback</code>
+                      </div>
+                      <div className="flex items-center justify-between py-1.5 border-b border-zinc-900">
+                        <span className="text-zinc-500 font-medium">Odometer Status Odo</span>
+                        <span className="font-bold text-white font-mono">{totalPrintLength}</span>
+                      </div>
+                      <div className="flex items-center justify-between py-1.5">
+                        <span className="text-zinc-500 font-medium">Bind Priority Option</span>
+                        <span className="text-emerald-400 font-bold font-mono">BIND_AUTO_CREATE</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-zinc-800/40 flex flex-col gap-2">
+                    <button
+                      onClick={handleToggleEcrBinding}
+                      className={`w-full py-3.5 rounded-2xl font-black text-xs transition-with-duration flex items-center justify-center gap-2 ${
+                        ecrServiceBound 
+                        ? 'bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20' 
+                        : 'bg-white text-black hover:bg-zinc-200'
+                      }`}
+                    >
+                      {ecrServiceBound ? (
+                        <>UNBIND LOCAL ECR SERVICE</>
+                      ) : (
+                        <>BIND SUNMI ECR REMOTE SERVICE</>
+                      )}
+                    </button>
+                    <p className="text-[10px] text-zinc-500 text-center">
+                      Configured for auto-initialization in <code className="text-zinc-400">MyApplication.onCreate()</code>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Simulated Register Sale & Event panel */}
+                <div className="bg-zinc-900/40 border border-zinc-800/40 p-6 rounded-[2.5rem] flex flex-col justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-white mb-3.5 flex items-center gap-2">
+                      <div className="w-1.5 h-3 bg-white rounded-full"></div>
+                      Local POS Cash Register Terminal
+                    </h4>
+                    <p className="text-xs text-zinc-500 mb-4">Simulate Cash Register signals transmitting transactions to the Sunmi peripheral.</p>
+
+                    <div className="space-y-3">
+                      <div className="bg-zinc-950/60 p-4 rounded-2xl border border-zinc-900 space-y-2">
+                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block font-sans">Active Terminal IDs</span>
+                        <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+                          <div>
+                            <span className="text-zinc-500 block text-[9px]">MERCHANT ID</span>
+                            <span className="text-zinc-300 font-medium">{ecrActiveMerchantNo}</span>
+                          </div>
+                          <div>
+                            <span className="text-zinc-500 block text-[9px]">TERMINAL ID</span>
+                            <span className="text-zinc-300 font-medium">{ecrActiveTerminalNo}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mt-4 pl-1">Interactive Triggers</span>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          onClick={() => handleTriggerEcrTransaction('15.50', 'CREDIT')}
+                          className="py-2.5 bg-zinc-805 bg-zinc-800 hover:bg-zinc-700/80 border border-zinc-700/60 rounded-xl text-center text-xs font-semibold text-white transition-all active:scale-95"
+                        >
+                          $15.50 Card
+                        </button>
+                        <button
+                          onClick={() => handleTriggerEcrTransaction('4.20', 'CASH')}
+                          className="py-2.5 bg-zinc-805 bg-zinc-800 hover:bg-zinc-700/80 border border-zinc-700/60 rounded-xl text-center text-xs font-semibold text-white transition-all active:scale-95"
+                        >
+                          $4.20 Cash
+                        </button>
+                        <button
+                          onClick={() => handleTriggerEcrTransaction('120.00', 'DIGITAL')}
+                          className="py-2.5 bg-zinc-805 bg-zinc-800 hover:bg-zinc-700/80 border border-zinc-700/60 rounded-xl text-center text-xs font-semibold text-white transition-all active:scale-95"
+                        >
+                          $120 QR
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 mt-4 border-t border-zinc-800/30 text-center">
+                    <span className="text-[10px] text-zinc-500">
+                      Standardized format conforms with Sunmi ECR SDK specifications.
+                    </span>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Android Emulator Logcat Console */}
+              <div className="bg-zinc-950 rounded-[2.5rem] border border-zinc-805 border-zinc-800/70 p-6 font-mono text-[11px]">
+                <div className="flex items-center justify-between mb-4 pb-4 border-b border-zinc-900">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                    <span className="text-xs font-bold text-zinc-400 font-mono">DEV SYSTEM LOGCAT: /dev/log/ecr_service</span>
+                  </div>
+                  <button 
+                    onClick={clearEcrLogs}
+                    className="text-[10px] text-zinc-400 hover:text-white transition-all px-3 py-1 bg-zinc-900 border border-zinc-800/80 rounded-lg"
+                  >
+                    Clear Logs
+                  </button>
+                </div>
+
+                <div className="space-y-1.5 max-h-56 overflow-y-auto leading-relaxed scrollbar-thin">
+                  {ecrSimulatedLogs.length > 0 ? (
+                    ecrSimulatedLogs.map(log => (
+                      <div key={log.id} className="flex gap-2 text-zinc-400 select-text font-mono text-left">
+                        <span className="text-zinc-650 text-zinc-500 shrink-0 font-mono">{log.time}</span>
+                        <span className={`font-bold shrink-0 font-mono ${
+                          log.type === 'error' ? 'text-rose-500' : log.type === 'success' ? 'text-emerald-400' : 'text-blue-400'
+                        }`}>
+                          [{log.tag}]
+                        </span>
+                        <span className={`font-mono ${log.type === 'error' ? 'text-rose-450 text-rose-400' : log.type === 'success' ? 'text-emerald-355 text-zinc-100 font-medium' : 'text-zinc-300'}`}>
+                          {log.content}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-zinc-500 italic text-center py-4 font-mono">No log records standard stream closed</div>
+                  )}
+                </div>
+              </div>
+
             </motion.div>
           )}
         </AnimatePresence>
