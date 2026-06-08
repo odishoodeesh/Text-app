@@ -386,11 +386,16 @@ export default function App() {
     }
     iframe = document.createElement('iframe');
     iframe.id = iframeId;
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
+    
+    // Some browsers block print requests for completely hidden frames ('display: none' or '0x0' dimensions).
+    // Standard compliant practice is to position a sized frame off-canvas with high-contrast properties, opacity, and pointer isolation.
+    iframe.style.position = 'absolute';
+    iframe.style.left = '-9999px';
+    iframe.style.top = '-9999px';
+    iframe.style.width = '320px';
+    iframe.style.height = '320px';
+    iframe.style.opacity = '0.01';
+    iframe.style.pointerEvents = 'none';
     iframe.style.border = 'none';
     document.body.appendChild(iframe);
 
@@ -520,8 +525,17 @@ export default function App() {
             .barcode-bar.thick { width: 4.5px; }
             .barcode-bar.space { background: transparent; }
           </style>
+          <script>
+            // Execution block for print activation on DOM load
+            window.addEventListener('DOMContentLoaded', function() {
+              setTimeout(function() {
+                window.focus();
+                window.print();
+              }, 150);
+            });
+          </script>
         </head>
-        <body onload="window.print();">
+        <body onload="window.focus(); window.print();">
           <div class="text-center">
             <div class="header-main">${escapeHtml(receiptTitle)}</div>
             <div class="header-sub">${escapeHtml(receiptSubtitle)}</div>
@@ -586,9 +600,26 @@ export default function App() {
       </html>
     `;
 
-    iframe.contentWindow?.document.open();
-    iframe.contentWindow?.document.write(receiptHtml);
-    iframe.contentWindow?.document.close();
+    try {
+      const doc = iframe.contentWindow?.document || iframe.contentDocument;
+      if (doc) {
+        doc.open();
+        doc.write(receiptHtml);
+        doc.close();
+      }
+    } catch (writeErr) {
+      console.error("Iframe document write failed:", writeErr);
+    }
+
+    // Secondary parent-to-child focus and execution trigger sequence
+    setTimeout(() => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } catch (printErr) {
+        console.warn("Direct execution trigger failed; relying on internal DOMContentLoaded event listener.", printErr);
+      }
+    }, 350);
   };
 
   const fetchPosts = async () => {
