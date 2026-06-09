@@ -22,7 +22,8 @@ import {
   Plus,
   ArrowLeft,
   Printer,
-  Cpu
+  Cpu,
+  Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
@@ -1104,7 +1105,18 @@ export default function App() {
             </button>
           </nav>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
+            <a 
+              href="https://limewire.com/d/kdJAE#z4Gn1NEA7D"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black rounded-lg transition-all shadow-md shrink-0"
+              title="Download Android APK"
+              id="apk-download-btn-header"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Download APK</span>
+            </a>
             <button 
               onClick={handleLogout}
               className="p-2 text-zinc-500 hover:text-white transition-colors"
@@ -1626,6 +1638,29 @@ export default function App() {
               exit={{ opacity: 0, x: 20 }}
               className="space-y-6"
             >
+              {/* APK Download Banner */}
+              <div className="bg-gradient-to-r from-emerald-950/20 to-zinc-900/40 border border-emerald-500/20 p-6 rounded-[2.5rem] flex flex-col md:flex-row items-center justify-between gap-6 backdrop-blur-md">
+                <div className="flex items-center gap-4 text-center md:text-left flex-col md:flex-row">
+                  <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center shrink-0 border border-emerald-500/20 shadow-md">
+                    <Download className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-black text-white">Compiled Android App Package</h4>
+                    <p className="text-zinc-400 text-xs mt-0.5 max-w-md">Download and run the compiled Android hybrid application containing native Firebase dependencies and Sunmi ECR kernel service bindings.</p>
+                  </div>
+                </div>
+                <a
+                  href="https://limewire.com/d/kdJAE#z4Gn1NEA7D"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-6 py-3 bg-emerald-400 hover:bg-emerald-300 text-black font-black text-xs rounded-2xl transition-all shadow-lg shrink-0 hover:scale-[1.02] active:scale-[0.98]"
+                  id="apk-download-btn-ecr"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>DOWNLOAD APK</span>
+                </a>
+              </div>
+
               {/* Premium Title Section */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-zinc-900/40 border border-zinc-800/40 p-6 rounded-[2.5rem] backdrop-blur-md">
                 <div>
